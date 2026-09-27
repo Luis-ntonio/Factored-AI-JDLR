@@ -1,0 +1,24 @@
+{
+  "name": "@banking-agent/web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Chat UI del AI-First Banking Agent — consume el endpoint POST /chat del pipeline real (Understand->Decide->Act->Verify->Escalate) desplegado en AWS. Renderiza status ok/clarify/escalate/unavailable según los contratos de @banking-agent/shared. Sin streaming: las respuestas llegan completas.",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -p tsconfig.json --noEmit && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@banking-agent/shared": "0.1.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.3",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.10"
+  }
+}

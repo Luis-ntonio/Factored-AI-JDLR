@@ -1,0 +1,19 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "ESNext",
+    "target": "ES2020",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "moduleResolution": "bundler",
+    "outDir": "dist",
+    "rootDir": "src",
+    "noEmit": true,
+    "isolatedModules": true,
+    "allowImportingTsExtensions": false,
+    "declaration": false,
+    "sourceMap": false,
+    "types": ["vite/client"]
+  },
+  "include": ["src"]
+}
