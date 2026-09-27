@@ -64,6 +64,19 @@ variable "bedrock_model_id" {
   default     = "us.anthropic.claude-sonnet-5"
 }
 
+variable "bedrock_region" {
+  description = <<-EOT
+    Region AWS donde se invoca Amazon Bedrock (module.secrets) y donde viven
+    los parametros SSM de bedrock_model_id/bedrock_region que
+    conversation-agent/policy-agent leen en runtime (module.agent, fase
+    "Habilitar Bedrock real"). Puede diferir de var.aws_region en principio,
+    pero este checkpoint despliega todo en una sola region -- default
+    "us-east-1", igual que var.aws_region.
+  EOT
+  type        = string
+  default     = "us-east-1"
+}
+
 variable "third_party_api_credentials" {
   description = "Ver terraform/modules/secrets/variables.tf. Placeholder dummy, no un secreto real."
   type        = map(string)

@@ -18,9 +18,25 @@
  * type-check, el type-check real ya lo hace `npm run build`/`tsc` antes de
  * este paso) resuelve el grafo de módulos e inlinea todo lo que no está
  * marcado `external`, symlinks incluidos, evitando el problema de raíz.
- * Solo se excluye `@aws-sdk/*`: el runtime Node.js 20.x de Lambda trae el
- * SDK v3 completo preinstalado, no hace falta bundlearlo (ahorra tamaño de
- * paquete y evita duplicar una dependencia pesada).
+ *
+ * `external` de `@aws-sdk/*`, por qué NO es uniforme en los 6 servicios
+ * (fase "Habilitar Bedrock real"): el runtime Node.js 20.x de Lambda trae
+ * preinstalado el SDK v3 completo de los servicios "core" de AWS (entre
+ * ellos `@aws-sdk/client-dynamodb`/`@aws-sdk/lib-dynamodb`, ya verificado
+ * funcionando en producción para retrieval-agent/transaction-agent/
+ * conversation-agent) -- para esos paquetes, `external` ahorra tamaño de
+ * zip sin riesgo. NO hay garantía equivalente de que la capa administrada
+ * del runtime incluya `@aws-sdk/client-bedrock-runtime` ni
+ * `@aws-sdk/client-ssm` (paquetes que conversation-agent/policy-agent
+ * empezaron a usar en esta fase para invocar Bedrock y leer su config desde
+ * SSM Parameter Store) -- si se marcaran `external` sin esa garantía, el
+ * riesgo real es un Lambda que falla en runtime con "Cannot find module
+ * '@aws-sdk/client-bedrock-runtime'". Por eso `conversation-agent` usa una
+ * lista explícita de `external` (NO el wildcard `@aws-sdk/*`) que sigue
+ * excluyendo dynamodb/lib-dynamodb pero bundlea bedrock-runtime/ssm, y
+ * `policy-agent` (que hoy no usa ningún paquete `@aws-sdk/*` "core") no
+ * excluye nada, bundleando lo que haga falta. Los otros 4 servicios no
+ * tocan Bedrock/SSM -- se quedan con el wildcard `@aws-sdk/*` de siempre.
  *
  * Invocado por Terraform (`null_resource.build_lambdas` en
  * `terraform/modules/agent`) en cada `terraform apply` que cambie el código
@@ -51,12 +67,21 @@ const REPO_ROOT = path.resolve(__dirname, "..", "..");
 const OUT_ROOT = path.resolve(__dirname, "..", "modules", "agent", "build");
 const POLICIES_YAML_SRC = path.join(REPO_ROOT, "policies.yaml");
 
-/** @type {{name: string, entry: string, copyPolicies: boolean}[]} */
+// Paquetes del SDK v3 "core" que el runtime administrado Node.js 20.x de
+// Lambda SÍ trae preinstalados -- seguro marcarlos `external` (no bundlear).
+const AWS_SDK_CORE_EXTERNAL = ["@aws-sdk/client-dynamodb", "@aws-sdk/lib-dynamodb"];
+
+/** @type {{name: string, entry: string, copyPolicies: boolean, external: string[]}[]} */
 const LAMBDAS = [
   {
     name: "conversation-agent",
     entry: path.join(REPO_ROOT, "services/conversation-agent/src/index.ts"),
     copyPolicies: false,
+    // Lista explícita (NO el wildcard "@aws-sdk/*"): sigue sin bundlear
+    // dynamodb/lib-dynamodb (preinstalados en el runtime), pero SÍ bundlea
+    // client-bedrock-runtime/client-ssm (sin garantía de que el runtime los
+    // traiga preinstalados -- ver comentario arriba).
+    external: AWS_SDK_CORE_EXTERNAL,
   },
   {
     // Entry point deliberado: src/handler.ts (no index.ts) -- ver
@@ -67,16 +92,21 @@ const LAMBDAS = [
     name: "policy-agent",
     entry: path.join(REPO_ROOT, "services/policy-agent/src/handler.ts"),
     copyPolicies: true,
+    // No usa ningún @aws-sdk/* "core" -- bundlea todo lo que haga falta
+    // (client-bedrock-runtime/client-ssm incluidos), nada external.
+    external: [],
   },
   {
     name: "retrieval-agent",
     entry: path.join(REPO_ROOT, "services/retrieval-agent/src/index.ts"),
     copyPolicies: false,
+    external: ["@aws-sdk/*"],
   },
   {
     name: "transaction-agent",
     entry: path.join(REPO_ROOT, "services/transaction-agent/src/index.ts"),
     copyPolicies: true,
+    external: ["@aws-sdk/*"],
   },
   {
     // Entry point deliberado: src/handler.ts (no index.ts) -- mismo criterio
@@ -89,6 +119,7 @@ const LAMBDAS = [
     // (POLICY_FILE_PATH) para recalcular score_zone de forma independiente
     // -- mismo mecanismo que policy-agent/transaction-agent.
     copyPolicies: true,
+    external: ["@aws-sdk/*"],
   },
   {
     // Entry point deliberado: src/handler.ts (no index.ts) -- mismo criterio
@@ -100,6 +131,7 @@ const LAMBDAS = [
     // Pura transformación de datos ya recibidos en el evento -- no lee
     // policies.yaml ni ninguna otra configuración en runtime.
     copyPolicies: false,
+    external: ["@aws-sdk/*"],
   },
 ];
 
@@ -120,10 +152,7 @@ function main() {
       platform: "node",
       target: "node20",
       format: "cjs",
-      // El SDK v3 completo viene preinstalado en el runtime Node.js 20.x de
-      // Lambda -- no se bundlea, se resuelve en runtime desde el layer del
-      // propio runtime.
-      external: ["@aws-sdk/*"],
+      external: lambda.external,
       logLevel: "info",
       sourcemap: false,
       minify: false,

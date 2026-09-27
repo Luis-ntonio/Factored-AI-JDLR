@@ -6,7 +6,13 @@ verification-agent, escalation-agent), más su IAM de mínimo privilegio.
 Los primeros 4 se implementaron en la fase de conexión del pipeline
 end-to-end sobre AWS real (gap 2/3 del checkpoint, ver `docs/STATUS.md`);
 verification-agent/escalation-agent se agregaron en la fase "Días 5-6 —
-Verify + Escalate" (`docs/PLAN.md`).
+Verify + Escalate" (`docs/PLAN.md`). En la fase "Habilitar Bedrock real"
+(ver sección "Bedrock IAM" más abajo) se agregó el IAM real de
+`bedrock:InvokeModel`/`Converse` y `ssm:GetParameter` a
+`conversation_agent`/`policy_agent`, y se ajustó el empaquetado (ver
+"Empaquetado" más abajo) para que esos dos servicios bundleen
+`@aws-sdk/client-bedrock-runtime`/`@aws-sdk/client-ssm` en vez de tratarlos
+como `external`.
 
 No implementa lógica de negocio -- solo empaqueta y despliega el código ya
 escrito y testeado en `services/*`.
@@ -24,11 +30,42 @@ Se eligió bundlear cada Lambda con **esbuild** a un único archivo CJS
 (`terraform/scripts/package-lambdas.js`, entry point el `.ts` de cada
 servicio directamente -- esbuild transpila TS sin type-check; el type-check
 real ya lo hace `npm run build`/`tsc` como parte del pipeline de CI antes de
-este paso), con `--external:@aws-sdk/*` (el runtime Node.js 20.x de Lambda
-trae el SDK v3 completo preinstalado). Esto resuelve el problema de symlinks
-de raíz: esbuild inlinea todo el grafo de módulos resuelto en disco,
-symlinks incluidos, sin depender de que `node_modules/@banking-agent/shared`
-exista como symlink válido dentro del zip desplegado.
+este paso). Esto resuelve el problema de symlinks de raíz: esbuild inlinea
+todo el grafo de módulos resuelto en disco, symlinks incluidos, sin depender
+de que `node_modules/@banking-agent/shared` exista como symlink válido
+dentro del zip desplegado.
+
+### `external` de `@aws-sdk/*`: NO es uniforme en los 6 servicios (fase "Habilitar Bedrock real")
+
+El runtime Node.js 20.x de Lambda trae preinstalados los paquetes "core" del
+SDK v3 (`@aws-sdk/client-dynamodb`/`@aws-sdk/lib-dynamodb` entre ellos, ya
+verificado funcionando en producción) -- marcarlos `external` ahorra tamaño
+de zip sin riesgo. **No hay garantía equivalente de que esa capa
+administrada incluya `@aws-sdk/client-bedrock-runtime` ni
+`@aws-sdk/client-ssm`** (paquetes que `conversation-agent`/`policy-agent`
+empezaron a usar en esta fase para invocar Bedrock y leer su config desde
+SSM Parameter Store) -- marcarlos `external` sin esa garantía arriesga un
+Lambda que falla en runtime con `Cannot find module
+'@aws-sdk/client-bedrock-runtime'`. Por eso `terraform/scripts/
+package-lambdas.js` ya no usa un `external` uniforme para los 6 servicios:
+
+| Servicio | `external` |
+|----------|------------|
+| `conversation-agent` | `["@aws-sdk/client-dynamodb", "@aws-sdk/lib-dynamodb"]` (lista explícita, NO el wildcard `@aws-sdk/*`) -- sigue sin bundlear dynamodb/lib-dynamodb (preinstalados), pero SÍ bundlea bedrock-runtime/ssm |
+| `policy-agent` | `[]` -- no usa ningún `@aws-sdk/*` "core", bundlea todo lo que haga falta (bedrock-runtime/ssm incluidos) |
+| `retrieval-agent`, `transaction-agent`, `verification-agent`, `escalation-agent` | `["@aws-sdk/*"]` (sin cambios -- no tocan Bedrock/SSM) |
+
+Verificado por inspección directa del bundle generado (no solo declarado):
+`grep -c "client-bedrock-runtime\|BedrockRuntimeClient" build/conversation-agent/index.js`
+y `build/policy-agent/index.js` confirman coincidencias (código inlineado),
+y `grep -o 'require("@aws-sdk/[a-zA-Z0-9_-]*")' build/conversation-agent/
+index.js` devuelve únicamente `@aws-sdk/client-dynamodb`/`@aws-sdk/
+lib-dynamodb` como `require()` externos reales (el único otro match,
+`@aws-sdk/signature-v4-crt`, es texto de un mensaje de error del propio SDK,
+no un `require()` real -- confirmado leyendo el contexto en el bundle). El
+tamaño de `build/conversation-agent/index.js` pasó de ~39kb a ~1.6mb y
+`build/policy-agent/index.js` de ~119kb a ~1.7mb, consistente con bundlear
+el SDK de Bedrock completo.
 
 `policy-agent`, `transaction-agent` y `verification-agent` además reciben
 una copia de `policies.yaml` (raíz del monorepo) dentro de su paquete, en
@@ -79,8 +116,8 @@ npm run package:lambdas   # desde la raíz del monorepo
 
 | Lambda | Permisos AWS (más allá de logging) |
 |--------|-------------------------------------|
-| `conversation-agent` | `dynamodb:GetItem`/`PutItem`/`Query` SOLO sobre `case_store` (tabla + índice) |
-| `policy-agent` | **Ninguno** -- evalúa `policies.yaml` embebido en su propio paquete, no toca AWS más allá de logging |
+| `conversation-agent` | `dynamodb:GetItem`/`PutItem`/`Query` SOLO sobre `case_store` (tabla + índice); `bedrock:InvokeModel`/`Converse` SOLO sobre el inference profile + foundation-model elegidos; `ssm:GetParameter` SOLO sobre los 2 parámetros de config de Bedrock |
+| `policy-agent` | `bedrock:InvokeModel`/`Converse` SOLO sobre el inference profile + foundation-model elegidos; `ssm:GetParameter` SOLO sobre los 2 parámetros de config de Bedrock -- sigue SIN DynamoDB, no toca ningún dato |
 | `retrieval-agent` | `dynamodb:GetItem`/`Scan` SOLO sobre `product_catalog` (solo lectura) |
 | `transaction-agent` | `dynamodb:GetItem`/`PutItem` SOLO sobre `case_store` |
 | `verification-agent` | **Ninguno** -- segunda verificación independiente releyendo `policies.yaml` embebido en su propio paquete, no toca AWS más allá de logging |
@@ -95,47 +132,97 @@ Ver `terraform/modules/orchestration/README.md` y
 (incluida la limitación conocida del bypass por el usuario admin del
 proyecto).
 
-## Bedrock IAM: decisión de diferir (fase "Habilitar Bedrock real")
+## Bedrock IAM: decisión de diferir (RESUELTO en la fase "Habilitar Bedrock real")
 
-**Decisión tomada: NO se agrega `bedrock:InvokeModel`/
-`bedrock:InvokeModelWithResponseStream` a ningún rol de este módulo todavía**
-(ni `conversation_agent` ni `policy_agent`, los candidatos naturales una vez
-que el router de intención pase de heurístico a un LLM real), aunque en esta
-misma fase ya se decidió el modelo Bedrock concreto
-(`us.anthropic.claude-sonnet-5`, ver `terraform/modules/secrets/README.md`)
-y se pobló el parámetro SSM con su valor real.
+**Historial de la decisión (checkpoint anterior, ya no vigente):** este
+módulo diferió deliberadamente el IAM de `bedrock:InvokeModel`/
+`InvokeModelWithResponseStream` hasta que existiera código real en
+`conversation-agent`/`policy-agent` que lo consumiera (principio "no
+otorgar un permiso IAM sin código que lo use", ver `terraform/README.md`,
+sección "Limitaciones"). Esa decisión queda documentada como referencia
+histórica, no se borra -- pero **ya no aplica**: ambos servicios empezaron a
+invocar Bedrock en esta fase (patrón "el modelo propone, policies.yaml
+dispone" -- Bedrock propone, el guardrail determinístico de policies.yaml
+sigue disponiendo la decisión final), así que el IAM correspondiente ya se
+agregó.
 
-**Razón**: el proyecto tiene un principio ya declarado explícitamente en
-checkpoints anteriores (`terraform/README.md`, sección "Limitaciones",
-ítem Bedrock) — **no otorgar un permiso IAM sin código que lo use**. Ese
-principio se mantiene acá a propósito:
+### Qué se agregó
 
-- Ningún Lambda de `services/*` invoca Bedrock hoy. `conversation-agent`
-  sigue usando un router de intención heurístico (reglas), no un LLM.
-  Otorgar `bedrock:InvokeModel` ahora sería un permiso sin código
-  consumidor, exactamente el escenario que el principio busca evitar (mayor
-  superficie de IAM sin beneficio funcional, y sin ningún test que ejercite
-  ese permiso).
-- Agregar el IAM ahora "porque ya total no cuesta nada" no es una razón de
-  peso: sí tiene costo (superficie de permisos que un reviewer de Security
-  tiene que auditar y justificar, sin código que la respalde) y no
-  desbloquea nada en este checkpoint — sea cual sea la fase en la que
-  conversation-agent/policy-agent efectivamente empiecen a invocar Bedrock,
-  agregar dos `aws_iam_role_policy` scoped al ARN del inference profile es
-  un cambio de Terraform chico y sin riesgo, no una razón para adelantarlo.
-- El bloqueador de "model access" (ver `terraform/modules/secrets/README.md`)
-  ya impediría que ese IAM sirviera de algo hoy incluso si existiera: aunque
-  el rol tuviera el permiso, la cuenta todavía no tiene habilitado el acceso
-  al modelo en la consola de Bedrock.
+- `data.aws_caller_identity.current` (sin recurso propio, solo lectura) --
+  necesaria para construir ARNs exactos sin hardcodear el account ID en
+  ningún `.tf` (mismo criterio ya aplicado en `docs/`: nunca commitear el
+  account ID literal).
+- `aws_iam_role_policy.conversation_agent_bedrock` /
+  `aws_iam_role_policy.policy_agent_bedrock`: `bedrock:InvokeModel` +
+  `bedrock:Converse` (deliberadamente SIN `InvokeModelWithResponseStream`/
+  `ConverseStream` -- el diseño de conversation-agent/policy-agent usa
+  `Converse` con tool use forzado, sin streaming; no se otorga un permiso
+  sin código que lo use, mismo principio de siempre) scoped a
+  `local.bedrock_resource_arns` (ver abajo, nunca `Resource = "*"`).
+- `aws_iam_role_policy.conversation_agent_ssm` /
+  `aws_iam_role_policy.policy_agent_ssm`: `ssm:GetParameter` scoped
+  exactamente a los 2 parámetros de `module.secrets`
+  (`bedrock_model_id_parameter_name`/`bedrock_region_parameter_name`), no al
+  path completo `/{project}-{env}/*` (aunque `module.secrets` documenta esa
+  alternativa como opción válida -- se prefirió el scoping más estrecho
+  posible).
+- Variables de entorno nuevas en ambos Lambdas:
+  `BEDROCK_MODEL_ID_PARAM_NAME`/`BEDROCK_REGION_PARAM_NAME` (nombres reales
+  de parámetro SSM) -- el contrato que el código de `conversation-agent`/
+  `policy-agent` usa para leer el modelo/región en runtime vía
+  `ssm:GetParameter`, en vez de hardcodearlo. `conversation-agent` además
+  recibe `UNDERSTANDING_BACKEND=bedrock` (mismo patrón que
+  `CATALOG_BACKEND` de `retrieval-agent`). `policy-agent` NO recibe un
+  toggle equivalente -- Bedrock se intenta siempre con fallback automático
+  al evaluador determinístico, sin variable de selección.
 
-Esto es una decisión **consciente**, no un descuido: cuando exista código
-real en `conversation-agent`/`policy-agent` que invoque
-`bedrock:InvokeModel`/`Converse` (fase C/D de `docs/PLAN.md`, todavía no
-implementada), se agrega en ese momento un `aws_iam_role_policy` por rol,
-scoped exactamente al ARN del inference profile elegido
-(`arn:aws:bedrock:us-east-1:<account_id>:inference-profile/us.anthropic.claude-sonnet-5`),
-siguiendo el mismo patrón de mínimo privilegio ya usado en el resto de este
-módulo (nunca `Resource: "*"`).
+### Por qué el ARN del inference profile NO alcanza (verificado empíricamente, no asumido)
+
+Hipótesis de partida: los inference profiles cross-region de Anthropic
+(prefijo `us.`) podrían requerir también permiso identity-based sobre el/los
+ARN(s) de `foundation-model` subyacente(s), no solo sobre el `inference-profile`.
+Se verificó con una invocación real de punta a punta (no una simulación):
+se desplegó una Lambda de prueba temporal (`nodejs20.x`, mismo bundle
+esbuild que produce `package-lambdas.js`) usando el `Role` real de
+`conversation_agent`/`policy_agent` (sin modificar su trust policy --
+Lambda ya es un principal confiable para ambos roles), con las mismas
+variables de entorno `BEDROCK_MODEL_ID_PARAM_NAME`/`BEDROCK_REGION_PARAM_NAME`
+que usará el código real, y se invocó (`lambda:InvokeFunction` con
+credenciales admin), leyendo la config vía `ssm:GetParameter` y llamando
+`ConverseCommand` exactamente como lo hará el código real. La Lambda de
+prueba se borró inmediatamente después de cada corrida.
+
+1. **Con SOLO el ARN del inference profile en el `Resource`**: `ssm:GetParameter`
+   funcionó (confirma esa policy). `bedrock:Converse` falló con
+   `AccessDeniedException` real:
+   > `User: arn:aws:sts::<account_id>:assumed-role/banking-agent-dev-conversation-agent-role/... is not authorized to perform: bedrock:InvokeModel on resource: arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-sonnet-4-6 because no identity-based policy allows the bedrock:InvokeModel action`
+
+   Confirma la hipótesis: Bedrock evalúa el permiso identity-based también
+   contra el ARN del foundation model subyacente (un recurso público de AWS,
+   sin account ID en el ARN), no solo contra el inference profile. Nota
+   adicional: el mensaje pide `bedrock:InvokeModel` aunque la llamada fue
+   `ConverseCommand` -- la Converse API se autoriza también contra esa
+   acción sobre el foundation model.
+2. **Se agregó el ARN de foundation-model en `bedrock_region` (`us-east-1`)
+   únicamente** y se re-probó: volvió a fallar, esta vez con el mismo error
+   pero contra `arn:aws:bedrock:us-east-2::foundation-model/...` -- AWS
+   enrutó la segunda invocación (mismo modelId, misma región del cliente) a
+   una región física distinta. Confirma que el enrutamiento cross-region del
+   prefijo `us.` es real y no determinístico, no alcanza con una sola
+   región de foundation-model.
+3. **Se agregaron los 3 ARNs de foundation-model** (`us-east-1`,
+   `us-east-2`, `us-west-2` -- las 3 regiones que cubre el prefijo `us.`
+   según la documentación de AWS) y se re-probó 3 veces consecutivas (rol
+   `conversation_agent`) + 1 vez con el rol `policy_agent`: las 4
+   invocaciones tuvieron éxito (`bedrock:Converse ok: true`, respuesta real
+   `{"message":{"role":"assistant","content":[{"text":"OK"}]}}`).
+
+`local.bedrock_resource_arns` en `main.tf` refleja exactamente este
+resultado: el ARN del inference profile + los 3 ARNs de foundation-model
+(`us-east-1`/`us-east-2`/`us-west-2`), construidos con
+`replace(var.bedrock_model_id, "us.", "")` para derivar el model ID base
+(`anthropic.claude-sonnet-4-6`) a partir del inference profile ID
+(`us.anthropic.claude-sonnet-4-6`).
 
 ## Variables relevantes
 
@@ -145,6 +232,15 @@ Ver `variables.tf`. Los ARNs/nombres de tabla (`case_store_table_*`,
 mantener el grafo de dependencias legible desde el root module.
 `verification-agent`/`escalation-agent` no agregan variables nuevas al
 módulo -- no necesitan ninguna tabla ni recurso adicional de otros módulos.
+
+Variables nuevas de la fase "Habilitar Bedrock real" (consumidas SOLO por
+`conversation_agent`/`policy_agent`, ver locals `bedrock_*` en `main.tf`):
+`bedrock_model_id`, `bedrock_region` (default `"us-east-1"`),
+`bedrock_model_id_ssm_parameter_name`, `bedrock_region_ssm_parameter_name`
+-- las últimas dos vienen de `module.secrets.bedrock_model_id_parameter_name`/
+`bedrock_region_parameter_name`, pasadas explícitamente desde
+`envs/dev/main.tf` (mismo patrón que el resto del módulo: sin referencias
+directas entre módulos).
 
 ## Outputs
 

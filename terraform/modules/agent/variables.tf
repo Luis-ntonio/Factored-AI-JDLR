@@ -76,3 +76,40 @@ variable "log_retention_days" {
   type        = number
   default     = 30
 }
+
+# --- Bedrock IAM real (fase "Habilitar Bedrock real" -- ver README.md,
+# sección "Bedrock IAM: decisión de diferir (RESUELTO)"). SOLO consumidas
+# por conversation_agent/policy_agent -- ningún otro rol de este módulo
+# necesita estas variables. ---
+
+variable "bedrock_model_id" {
+  description = <<-EOT
+    ID del inference profile de Amazon Bedrock (ver module.secrets). Usado
+    para construir el ARN exacto (`arn:aws:bedrock:<region>:<account_id>:
+    inference-profile/<este valor>`) al que se scopea `bedrock:InvokeModel`/
+    `bedrock:Converse` en el IAM de conversation_agent/policy_agent. Nunca
+    `Resource = "*"`.
+  EOT
+  type        = string
+}
+
+variable "bedrock_region" {
+  description = <<-EOT
+    Región AWS donde se invoca Bedrock y donde viven los parámetros SSM de
+    bedrock_model_id/bedrock_region (mismo valor que envs/dev pasa hoy a
+    module.secrets). Default "us-east-1", igual que var.aws_region de este
+    ambiente -- este checkpoint despliega todo en una sola región.
+  EOT
+  type        = string
+  default     = "us-east-1"
+}
+
+variable "bedrock_model_id_ssm_parameter_name" {
+  description = "Nombre del parámetro SSM (module.secrets.bedrock_model_id_parameter_name) que conversation-agent/policy-agent leen en runtime vía ssm:GetParameter, en vez de hardcodear el model ID en su código."
+  type        = string
+}
+
+variable "bedrock_region_ssm_parameter_name" {
+  description = "Nombre del parámetro SSM (module.secrets.bedrock_region_parameter_name) que conversation-agent/policy-agent leen en runtime vía ssm:GetParameter."
+  type        = string
+}

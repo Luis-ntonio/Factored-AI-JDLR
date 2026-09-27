@@ -70,6 +70,7 @@ module "secrets" {
   environment                 = var.environment
   tags                        = var.tags
   bedrock_model_id            = var.bedrock_model_id
+  bedrock_region              = var.bedrock_region
   third_party_api_credentials = var.third_party_api_credentials
 }
 
@@ -86,6 +87,17 @@ module "agent" {
   case_store_table_arn  = module.data.table_arn
   catalog_table_name    = module.data.product_catalog_table_name
   catalog_table_arn     = module.data.product_catalog_table_arn
+
+  # Bedrock IAM real (fase "Habilitar Bedrock real") -- ver
+  # terraform/modules/agent/README.md, seccion "Bedrock IAM: decision de
+  # diferir (RESUELTO)". bedrock_model_id_ssm_parameter_name/
+  # bedrock_region_ssm_parameter_name vienen de module.secrets (no se
+  # referencian directamente entre modulos, mismo patron ya usado para
+  # case_store_table_*/catalog_table_*).
+  bedrock_model_id                    = var.bedrock_model_id
+  bedrock_region                      = var.bedrock_region
+  bedrock_model_id_ssm_parameter_name = module.secrets.bedrock_model_id_parameter_name
+  bedrock_region_ssm_parameter_name   = module.secrets.bedrock_region_parameter_name
 }
 
 module "orchestration" {

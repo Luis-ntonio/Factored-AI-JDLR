@@ -118,14 +118,79 @@ data "aws_iam_policy_document" "lambda_assume_role" {
   }
 }
 
+# --- Bedrock IAM real (fase "Habilitar Bedrock real" -- ver README.md,
+# sección "Bedrock IAM: decisión de diferir (RESUELTO)"). Consumido SOLO por
+# conversation_agent/policy_agent más abajo. ---
+#
+# Identity de la cuenta actual -- necesaria para construir ARNs exactos de
+# Bedrock/SSM sin hardcodear el account ID en ningún .tf (mismo criterio ya
+# aplicado en docs/: nunca commitear el account ID literal).
+data "aws_caller_identity" "current" {}
+
+locals {
+  # ARN del inference profile cross-region (prefijo "us.") elegido en
+  # module.secrets. Recurso primario al que se scopea bedrock:InvokeModel/
+  # Converse -- nunca Resource = "*".
+  bedrock_inference_profile_arn = "arn:aws:bedrock:${var.bedrock_region}:${data.aws_caller_identity.current.account_id}:inference-profile/${var.bedrock_model_id}"
+
+  # Verificado empíricamente (test real: Lambda temporal desplegada con el
+  # rol exacto de conversation_agent, invocada de punta a punta -- ver
+  # README.md, sección "Bedrock IAM: decision de diferir (RESUELTO)" para el
+  # detalle completo): otorgar SOLO el ARN del inference profile NO alcanza.
+  # ConverseCommand contra un inference profile cross-region (prefijo "us.")
+  # devuelve AccessDeniedException real:
+  #   "is not authorized to perform: bedrock:InvokeModel on resource:
+  #    arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-sonnet-4-6
+  #    because no identity-based policy allows the bedrock:InvokeModel action"
+  # -- Bedrock evalúa el permiso identity-based tambien contra el ARN del
+  # foundation model subyacente (sin account ID, recurso público de AWS), no
+  # solo contra el inference profile. Se agrega el ARN de foundation-model en
+  # la MISMA region que bedrock_region (unica probada empiricamente) -- no se
+  # agregan preventivamente us-east-2/us-west-2 (aunque el prefijo "us."
+  # cubre esas regiones para el ROUTING interno de AWS) porque el principio
+  # de este proyecto es minimo privilegio verificado, no maximo privilegio
+  # especulativo: si en el futuro una invocacion real falla porque AWS
+  # enruto a otra region, se agrega esa region especifica con la misma
+  # evidencia empirica que esta.
+  # Se probaron 2 invocaciones reales consecutivas (misma Lambda de prueba,
+  # mismo rol, mismo modelId) contra la region bedrock_region (us-east-1):
+  # la primera fue enrutada por AWS internamente a us-east-1, la segunda a
+  # us-east-2 -- confirma que el enrutamiento cross-region del prefijo "us."
+  # es real y no deterministico (no alcanza con el foundation-model ARN de
+  # una sola region). Se agregan las 3 regiones que cubre el prefijo "us."
+  # segun la documentacion de AWS (us-east-1/us-east-2/us-west-2) -- ver
+  # README.md para el detalle completo de ambas invocaciones reales.
+  bedrock_foundation_model_arns = [
+    for region in ["us-east-1", "us-east-2", "us-west-2"] :
+    "arn:aws:bedrock:${region}::foundation-model/${replace(var.bedrock_model_id, "us.", "")}"
+  ]
+
+  bedrock_resource_arns = concat(
+    [local.bedrock_inference_profile_arn],
+    local.bedrock_foundation_model_arns,
+  )
+
+  # ARNs de los parámetros SSM que conversation-agent/policy-agent leen en
+  # runtime (BEDROCK_MODEL_ID_PARAM_NAME/BEDROCK_REGION_PARAM_NAME, ver
+  # bloque `environment` de cada Lambda más abajo) -- scoping exacto a los 2
+  # parámetros, no al path completo (aunque module.secrets documenta esa
+  # alternativa como opción válida).
+  bedrock_ssm_parameter_arns = [
+    "arn:aws:ssm:${var.bedrock_region}:${data.aws_caller_identity.current.account_id}:parameter${var.bedrock_model_id_ssm_parameter_name}",
+    "arn:aws:ssm:${var.bedrock_region}:${data.aws_caller_identity.current.account_id}:parameter${var.bedrock_region_ssm_parameter_name}",
+  ]
+}
+
 # =====================================================================
 # conversation-agent -- capa Understand.
 # IAM de mínimo privilegio (gap 3, Tarea 3 del checkpoint "AWS real"):
-# SOLO DynamoDB Get/Put/Query sobre case_store. Deliberadamente SIN
-# lambda:InvokeFunction sobre ningún recurso -- no necesita invocar otros
-# Lambdas, y esa ausencia es justamente lo que garantiza que no pueda
-# saltearse la Step Function e invocar retrieval-agent/transaction-agent
-# directamente.
+# DynamoDB Get/Put/Query sobre case_store + (fase "Habilitar Bedrock real")
+# bedrock:InvokeModel/Converse scoped al inference profile elegido, y
+# ssm:GetParameter scoped a los 2 parámetros de config de Bedrock.
+# Deliberadamente SIN lambda:InvokeFunction sobre ningún recurso -- no
+# necesita invocar otros Lambdas, y esa ausencia es justamente lo que
+# garantiza que no pueda saltearse la Step Function e invocar
+# retrieval-agent/transaction-agent directamente.
 # =====================================================================
 resource "aws_iam_role" "conversation_agent" {
   name               = "${local.name_prefix}-conversation-agent-role"
@@ -161,6 +226,43 @@ resource "aws_iam_role_policy" "conversation_agent_dynamodb" {
   })
 }
 
+resource "aws_iam_role_policy" "conversation_agent_bedrock" {
+  name = "${local.name_prefix}-conversation-agent-bedrock"
+  role = aws_iam_role.conversation_agent.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "InvokeBedrockInferenceProfile"
+        Effect = "Allow"
+        Action = [
+          "bedrock:InvokeModel",
+          "bedrock:Converse",
+        ]
+        Resource = local.bedrock_resource_arns
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy" "conversation_agent_ssm" {
+  name = "${local.name_prefix}-conversation-agent-ssm"
+  role = aws_iam_role.conversation_agent.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid      = "ReadBedrockConfigParameters"
+        Effect   = "Allow"
+        Action   = ["ssm:GetParameter"]
+        Resource = local.bedrock_ssm_parameter_arns
+      }
+    ]
+  })
+}
+
 resource "aws_cloudwatch_log_group" "conversation_agent" {
   name              = "/aws/lambda/${local.name_prefix}-conversation-agent"
   retention_in_days = var.log_retention_days
@@ -180,7 +282,10 @@ resource "aws_lambda_function" "conversation_agent" {
 
   environment {
     variables = {
-      CASE_STORE_TABLE_NAME = var.case_store_table_name
+      CASE_STORE_TABLE_NAME       = var.case_store_table_name
+      UNDERSTANDING_BACKEND       = "bedrock"
+      BEDROCK_MODEL_ID_PARAM_NAME = var.bedrock_model_id_ssm_parameter_name
+      BEDROCK_REGION_PARAM_NAME   = var.bedrock_region_ssm_parameter_name
     }
   }
 
@@ -190,15 +295,20 @@ resource "aws_lambda_function" "conversation_agent" {
     aws_cloudwatch_log_group.conversation_agent,
     aws_iam_role_policy_attachment.conversation_agent_basic_logs,
     aws_iam_role_policy.conversation_agent_dynamodb,
+    aws_iam_role_policy.conversation_agent_bedrock,
+    aws_iam_role_policy.conversation_agent_ssm,
   ]
 }
 
 # =====================================================================
 # policy-agent -- capa Decide.
-# IAM de mínimo privilegio: SOLO logging (AWSLambdaBasicExecutionRole).
-# Deliberadamente SIN DynamoDB, SIN lambda:InvokeFunction sobre ningún
-# recurso -- evalúa policies.yaml embebido en el propio paquete, no toca
-# ningún dato ni invoca a nadie.
+# IAM de mínimo privilegio: logging + (fase "Habilitar Bedrock real")
+# bedrock:InvokeModel/Converse scoped al inference profile elegido, y
+# ssm:GetParameter scoped a los 2 parámetros de config de Bedrock -- patrón
+# "el modelo propone, policies.yaml dispone": Bedrock solo puede PROPONER,
+# el guardrail determinístico sigue siendo policies.yaml embebido en el
+# propio paquete. Deliberadamente SIN DynamoDB, SIN lambda:InvokeFunction
+# sobre ningún recurso -- no toca ningún dato ni invoca a nadie.
 # =====================================================================
 resource "aws_iam_role" "policy_agent" {
   name               = "${local.name_prefix}-policy-agent-role"
@@ -209,6 +319,43 @@ resource "aws_iam_role" "policy_agent" {
 resource "aws_iam_role_policy_attachment" "policy_agent_basic_logs" {
   role       = aws_iam_role.policy_agent.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+resource "aws_iam_role_policy" "policy_agent_bedrock" {
+  name = "${local.name_prefix}-policy-agent-bedrock"
+  role = aws_iam_role.policy_agent.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "InvokeBedrockInferenceProfile"
+        Effect = "Allow"
+        Action = [
+          "bedrock:InvokeModel",
+          "bedrock:Converse",
+        ]
+        Resource = local.bedrock_resource_arns
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy" "policy_agent_ssm" {
+  name = "${local.name_prefix}-policy-agent-ssm"
+  role = aws_iam_role.policy_agent.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid      = "ReadBedrockConfigParameters"
+        Effect   = "Allow"
+        Action   = ["ssm:GetParameter"]
+        Resource = local.bedrock_ssm_parameter_arns
+      }
+    ]
+  })
 }
 
 resource "aws_cloudwatch_log_group" "policy_agent" {
@@ -230,7 +377,9 @@ resource "aws_lambda_function" "policy_agent" {
 
   environment {
     variables = {
-      POLICY_FILE_PATH = "/var/task/policies.yaml"
+      POLICY_FILE_PATH            = "/var/task/policies.yaml"
+      BEDROCK_MODEL_ID_PARAM_NAME = var.bedrock_model_id_ssm_parameter_name
+      BEDROCK_REGION_PARAM_NAME   = var.bedrock_region_ssm_parameter_name
     }
   }
 
@@ -239,13 +388,16 @@ resource "aws_lambda_function" "policy_agent" {
   depends_on = [
     aws_cloudwatch_log_group.policy_agent,
     aws_iam_role_policy_attachment.policy_agent_basic_logs,
+    aws_iam_role_policy.policy_agent_bedrock,
+    aws_iam_role_policy.policy_agent_ssm,
   ]
 }
 
 # =====================================================================
 # retrieval-agent -- capa Act (informativa).
 # IAM de mínimo privilegio: SOLO lectura (GetItem, Scan) sobre la tabla de
-# catálogo. Sin permisos de escritura, sin lambda:InvokeFunction.
+# catálogo. Sin permisos de escritura, sin lambda:InvokeFunction. No invoca
+# Bedrock -- sigue siendo lookup determinístico sobre DynamoDB.
 # =====================================================================
 resource "aws_iam_role" "retrieval_agent" {
   name               = "${local.name_prefix}-retrieval-agent-role"
@@ -314,6 +466,8 @@ resource "aws_lambda_function" "retrieval_agent" {
 # transaction-agent -- capa Act (transaccional/elegibilidad).
 # IAM de mínimo privilegio: SOLO GetItem/PutItem sobre case_store (idempotency
 # key + persistencia del resultado de elegibilidad). Sin lambda:InvokeFunction.
+# No invoca Bedrock -- el cálculo de elegibilidad sigue siendo determinístico
+# (policies.yaml embebido), fuera del scope de esta fase.
 # =====================================================================
 resource "aws_iam_role" "transaction_agent" {
   name               = "${local.name_prefix}-transaction-agent-role"
@@ -386,7 +540,7 @@ resource "aws_lambda_function" "transaction_agent" {
 # recurso -- hace una segunda verificación INDEPENDIENTE del resultado ya
 # calculado por retrieval-agent/transaction-agent, releyendo
 # policies.yaml embebido en su propio paquete, sin tocar ningún dato ni
-# invocar a nadie.
+# invocar a nadie. No invoca Bedrock -- fuera del scope de esta fase.
 # =====================================================================
 resource "aws_iam_role" "verification_agent" {
   name               = "${local.name_prefix}-verification-agent-role"
