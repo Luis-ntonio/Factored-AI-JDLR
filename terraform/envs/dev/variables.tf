@@ -111,9 +111,14 @@ variable "enable_analytics_pipeline" {
     credenciales admin del propio usuario del proyecto, sin relación con
     ningún rol IAM de este módulo) -- mismo error exacto. Esto descarta un
     problema de IAM/Terraform y confirma que es una restricción a nivel de
-    cuenta/servicio (el tipo de bloqueo que requiere habilitar el servicio
-    o contactar a AWS Support/Sales, según el mensaje de error de AWS —
-    fuera del alcance de Terraform o de cualquier credential de esta cuenta).
+    cuenta/servicio.
+
+    CAUSA RAÍZ CONFIRMADA POR EL USUARIO: la cuenta de este proyecto es una
+    cuenta AWS **freemium/free-tier**, y Kinesis Firehose no está
+    disponible para ese nivel de cuenta -- requiere upgrade a una cuenta de
+    pago (o contactar a AWS Support/Sales, como indica el mensaje de
+    error). No es un simple "falta un click de habilitar", es una
+    restricción real del tier de la cuenta.
 
     Default `false` en este ambiente por ese bloqueador -- el código
     completo del pipeline SÍ existe y es válido (`terraform plan` con este
