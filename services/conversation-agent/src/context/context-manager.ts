@@ -8,10 +8,8 @@ import {
   UnderstandOutput,
   emptyEntities,
 } from "@banking-agent/shared";
-import { detectLanguage } from "../router/language-detector";
-import { extractEntities } from "../router/entity-extractor";
-import { routeIntent } from "../router/intent-router";
 import { ConversationStateItem, ConversationStateStore } from "./state-store";
+import { UnderstandBackendDeps, resolveUnderstanding } from "../understanding/understand-backend";
 
 export interface BuildUnderstandOutputInput {
   caseId: string;
@@ -58,13 +56,21 @@ export function computeMissingFields(intent: Intent, entities: Entities): Entity
  */
 export async function buildUnderstandOutput(
   input: BuildUnderstandOutputInput,
-  store: ConversationStateStore
+  store: ConversationStateStore,
+  understandingDeps: UnderstandBackendDeps = {}
 ): Promise<UnderstandOutput> {
   const { caseId, customerId, messageId, message } = input;
 
-  const language = detectLanguage(message).language;
-  const incomingEntities = extractEntities(message, language);
-  const intent = routeIntent(message, language, incomingEntities);
+  // Seam de backend Understand: Bedrock (tool use forzado) con fallback
+  // automático a la heurística existente ante error/baja confianza — ver
+  // understanding/understand-backend.ts. Todo lo que sigue de acá en
+  // adelante (lectura de estado, merge de entities, missing_fields,
+  // persistencia, armado del UnderstandOutput) es IDÉNTICO sin importar qué
+  // backend produjo estos tres valores.
+  const { language, entities: incomingEntities, intent } = await resolveUnderstanding(
+    { message, caseId, turnId: messageId },
+    understandingDeps
+  );
 
   let degraded = false;
   let degradedReason: DegradedReason = "none";
