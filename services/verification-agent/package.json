@@ -1,0 +1,22 @@
+{
+  "name": "@banking-agent/verification-agent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Capa Verify del pipeline: segunda verificación INDEPENDIENTE (nunca un passthrough) del resultado ya producido por retrieval-agent (product_info/faq) o transaction-agent (eligibility_check), antes de que la Step Function lo comunique como exitoso al usuario. Ante cualquier duda o fallo interno reporta 'pending_confirmation', nunca 'verified' por default. Handler Task-a-Task de la Step Function (JSON plano), sin acceso a DynamoDB ni a ningún otro recurso AWS.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@banking-agent/shared": "0.1.0",
+    "js-yaml": "^4.1.0"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^20.16.11",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.4"
+  }
+}
