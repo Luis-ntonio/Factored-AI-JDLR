@@ -480,7 +480,7 @@ Devops verificó independientemente antes de aplicar:
    modificado in-place). `policy-agent`/`retrieval-agent`/`transaction-agent`
    no se tocaron porque su zip resultó con el mismo hash ya desplegado.
 4. Re-verificación contra AWS real (`StartSyncExecutionCommand` sobre
-   `arn:aws:states:us-east-1:951662620611:stateMachine:banking-agent-dev-chat-orchestrator`)
+   `arn:aws:states:us-east-1:<AWS_ACCOUNT_ID>:stateMachine:banking-agent-dev-chat-orchestrator`)
    de los 2 casos que QA había reportado fallando:
    - `"quero falar com um atendente"` → `status: "escalate"`,
      `language: "pt"`, `intent: "escalation_request"` (antes: `clarify`

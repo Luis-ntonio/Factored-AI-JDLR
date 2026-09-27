@@ -70,7 +70,7 @@ credencial, admin incluido) funcione. No es resoluble desde Terraform ni
 desde el AWS CLI/SDK — es una acción manual de la consola.
 
 **Acción exacta pendiente del usuario**: entrar a la consola de AWS, cuenta
-`951662620611`, región `us-east-1` → Amazon Bedrock → **Model access** →
+`<AWS_ACCOUNT_ID>`, región `us-east-1` → Amazon Bedrock → **Model access** →
 solicitar/habilitar acceso a **"Claude Sonnet 5"** (proveedor Anthropic).
 Repetir para `us-east-2`/`us-west-2` si se quiere que el inference profile
 `us.anthropic.claude-sonnet-5` pueda enrutar a esas regiones también (el

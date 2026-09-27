@@ -99,7 +99,7 @@ variable "enable_analytics_pipeline" {
     terraform/modules/analytics/README.md).
 
     BLOQUEADOR CONOCIDO (cuenta AWS real de este proyecto, no resoluble
-    desde Terraform/IAM/CLI): la cuenta `951662620611` NO tiene el servicio
+    desde Terraform/IAM/CLI): la cuenta `<AWS_ACCOUNT_ID>` NO tiene el servicio
     Kinesis Firehose habilitado/suscrito. Confirmado con DOS llamadas reales
     e independientes contra la API real (no asumido): (1)
     `terraform apply` intentando crear el `aws_kinesis_firehose_delivery_stream`
