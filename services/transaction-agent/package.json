@@ -1,0 +1,26 @@
+{
+  "name": "@banking-agent/transaction-agent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Capa Act (parte transaccional) del pipeline: cálculo determinístico de elegibilidad crediticia para intent eligibility_check, ya autorizado por policy-agent (decision === AUTO en stage: pre_action). NO reporta éxito directamente al usuario -- el resultado pasa por policy-agent (stage: post_action) y luego por verification-agent. Handler listo para Lambda (aún no conectado a API Gateway).",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.665.0",
+    "@aws-sdk/lib-dynamodb": "^3.665.0",
+    "@banking-agent/shared": "0.1.0",
+    "js-yaml": "^4.1.0"
+  },
+  "devDependencies": {
+    "@banking-agent/policy-agent": "0.1.0",
+    "@types/aws-lambda": "^8.10.145",
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^20.16.11",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.4"
+  }
+}
