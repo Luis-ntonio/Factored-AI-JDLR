@@ -1,0 +1,31 @@
+# Dependencias / build de los workspaces npm (packages/*, services/*, apps/*)
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Config/tooling local de Claude Code -- no se versiona (decisión del
+# usuario: agentes/permisos son configuración local de desarrollo, no parte
+# del producto).
+.claude/
+
+# Imágenes de referencia del challenge (raíz del repo) -- material de
+# contexto, no parte del código/producto.
+/*.jpeg
+/*.jpg
+/*.png
+/*.gif
+
+# Variables de entorno reales -- nunca versionar secretos.
+.env
+.env.local
+.env.*.local
+
+# Logs
+npm-debug.log*
+*.log
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
