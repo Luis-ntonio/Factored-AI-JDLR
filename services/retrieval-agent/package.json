@@ -1,0 +1,25 @@
+{
+  "name": "@banking-agent/retrieval-agent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Capa Act (parte informativa) del pipeline: catálogo de productos de crédito (tasas, requisitos, condiciones) y FAQs asociadas para intents product_info/faq, ya autorizados por policy-agent. El cálculo de elegibilidad en sí lo hace transaction-agent. Handler listo para Lambda (aún no conectado a API Gateway).",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json && tsc -p tsconfig.scripts.json",
+    "test": "vitest run",
+    "seed:catalog": "node dist/scripts/seed-catalog.js"
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.665.0",
+    "@aws-sdk/lib-dynamodb": "^3.665.0",
+    "@banking-agent/shared": "0.1.0"
+  },
+  "devDependencies": {
+    "@banking-agent/policy-agent": "0.1.0",
+    "@types/aws-lambda": "^8.10.145",
+    "@types/node": "^20.16.11",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.4"
+  }
+}
