@@ -1,0 +1,22 @@
+{
+  "name": "@banking-agent/policy-agent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Capa Decide del pipeline. Lee policies.yaml (raíz del monorepo) y un UnderstandOutput (contrato de @banking-agent/shared) y devuelve AUTO/CLARIFY/ESCALATE con trazabilidad de qué regla(s) matchearon. NO ejecuta acciones, solo autoriza/bloquea. NOTA: este paquete no fue compilado ni testeado por el autor (ver README.md) — correr `npm install && npm run build && npm test` antes de confiar en él.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@banking-agent/shared": "0.1.0",
+    "js-yaml": "^4.1.0"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^20.16.11",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.4"
+  }
+}
