@@ -2,6 +2,11 @@ import * as path from "node:path";
 import type { EligibilityResult, UnderstandOutput } from "@banking-agent/shared";
 import { evaluatePostAction, evaluatePreAction, loadPolicyFile } from "./evaluator";
 import type { PolicyDecisionResult, PolicyFile } from "./types";
+import { getBedrockDeciderConfig } from "./bedrock/config";
+import { proposeModelDecision } from "./bedrock/model-decider";
+import type { DecisionStage, ModelProposal } from "./bedrock/model-decider";
+import { applyModelGuardrail } from "./bedrock/guardrail";
+import type { ExtendedPolicyDecisionResult } from "./bedrock/guardrail";
 
 /**
  * Handler de Lambda para la capa "Decide" (paso "Decide" del pipeline real).
@@ -65,6 +70,24 @@ import type { PolicyDecisionResult, PolicyFile } from "./types";
  * por defecto -- mismo criterio que el fallback-por-defecto ya documentado
  * en `evaluateStage`/`policies.yaml`). Mismo criterio de Reliability que los
  * otros 3 servicios: siempre una respuesta válida, nunca un crash.
+ *
+ * Guardrail de Bedrock (capa "Decide" con modelo real, ver `./bedrock/`):
+ * después de calcular `evaluatePreAction`/`evaluatePostAction` (SIN
+ * CAMBIOS respecto de antes), este handler intenta obtener una propuesta
+ * de decisión de Amazon Bedrock (`./bedrock/model-decider.ts`) y la combina
+ * con el resultado del evaluador vía `./bedrock/guardrail.ts`
+ * (`applyModelGuardrail`), que aplica "most-conservative-match-wins" (el
+ * mismo mecanismo de `SEVERITY_ORDER` que ya usa `evaluateStage` para
+ * combinar reglas entre sí) también entre la propuesta del modelo y la del
+ * evaluador. Si Bedrock no está configurado (env vars de SSM ausentes),
+ * no responde, o devuelve una `decision` fuera de enum, el resultado es
+ * BIT-IDÉNTICO al que este handler devolvía antes de esta integración
+ * (ver `applyModelGuardrail`, caso `modelProposal === null`). El `try/catch`
+ * externo de más abajo (`fallbackDecision()`) sigue siendo la red de
+ * seguridad de último recurso ante cualquier excepción no capturada; no
+ * debería activarse por un fallo de Bedrock -- eso lo maneja
+ * `./bedrock/model-decider.ts`/`./bedrock/guardrail.ts` internamente sin
+ * lanzar nunca.
  */
 
 let cachedPolicy: PolicyFile | null = null;
@@ -105,15 +128,91 @@ function isPostActionEvent(event: unknown): event is PostActionEvent {
   );
 }
 
+/** Input que se le manda al modelo: el `EligibilityResult` completo (sin el
+ * campo `stage`, que es un discriminador propio del contrato interno de
+ * este Lambda, no parte de `EligibilityResult`) para post_action, o el
+ * `UnderstandOutput` crudo para pre_action. */
+function toModelInput(
+  event: UnderstandOutput | PostActionEvent,
+  stage: DecisionStage
+): UnderstandOutput | EligibilityResult {
+  if (stage === "post_action") {
+    const { stage: _stage, ...eligibilityResult } = event as PostActionEvent;
+    return eligibilityResult;
+  }
+  return event as UnderstandOutput;
+}
+
+/** IDs de correlación para el log estructurado -- `caseId`/`turnId` de
+ * `UnderstandOutput.context` en pre_action, `caseId` de `EligibilityResult`
+ * en post_action (no tiene `turnId` propio, ver `../packages/shared`). */
+function correlationIds(event: UnderstandOutput | PostActionEvent): { caseId?: string; turnId?: string } {
+  if (isPostActionEvent(event)) {
+    return { caseId: event.caseId };
+  }
+  const understandEvent = event as UnderstandOutput;
+  return { caseId: understandEvent.context?.caseId, turnId: understandEvent.context?.turnId };
+}
+
+function logDecisionSource(
+  event: UnderstandOutput | PostActionEvent,
+  ruleResult: PolicyDecisionResult,
+  modelProposal: ModelProposal | null,
+  finalResult: ExtendedPolicyDecisionResult
+): void {
+  const winner: "rules" | "model" | "rules_only_bedrock_unavailable" =
+    modelProposal === null ? "rules_only_bedrock_unavailable" : finalResult.decisionSource ?? "rules";
+  // eslint-disable-next-line no-console
+  console.log(
+    JSON.stringify({
+      event: "policy_decision_source",
+      ...correlationIds(event),
+      ruleDecision: ruleResult.decision,
+      modelDecision: modelProposal?.decision ?? null,
+      modelConfidence: modelProposal?.confidence ?? null,
+      finalDecision: finalResult.decision,
+      winner,
+    })
+  );
+}
+
+/** Orquesta el guardrail de Bedrock alrededor de `ruleResult`, ya calculado
+ * por `evaluatePreAction`/`evaluatePostAction` SIN CAMBIOS. Nunca lanza --
+ * cualquier fallo de Bedrock/SSM se resuelve internamente (ver
+ * `./bedrock/config.ts`/`./bedrock/model-decider.ts`) a "propuesta no
+ * disponible", y `applyModelGuardrail` devuelve `ruleResult` tal cual en
+ * ese caso. */
+async function decideWithModelGuardrail(
+  event: UnderstandOutput | PostActionEvent,
+  stage: DecisionStage,
+  ruleResult: PolicyDecisionResult
+): Promise<ExtendedPolicyDecisionResult> {
+  const bedrockConfig = await getBedrockDeciderConfig();
+
+  let modelProposal: ModelProposal | null = null;
+  if (bedrockConfig) {
+    modelProposal = await proposeModelDecision(toModelInput(event, stage), stage, {
+      bedrockClient: bedrockConfig.bedrockClient,
+      modelId: bedrockConfig.modelId,
+    });
+  }
+
+  const finalResult = applyModelGuardrail(ruleResult, modelProposal);
+  logDecisionSource(event, ruleResult, modelProposal, finalResult);
+  return finalResult;
+}
+
 export async function handler(
   event: UnderstandOutput | PostActionEvent
 ): Promise<PolicyDecisionResult> {
   try {
     const policy = getPolicy();
     if (isPostActionEvent(event)) {
-      return evaluatePostAction(event, policy);
+      const ruleResult = evaluatePostAction(event, policy);
+      return await decideWithModelGuardrail(event, "post_action", ruleResult);
     }
-    return evaluatePreAction(event as UnderstandOutput, policy);
+    const ruleResult = evaluatePreAction(event as UnderstandOutput, policy);
+    return await decideWithModelGuardrail(event, "pre_action", ruleResult);
   } catch (error) {
     // eslint-disable-next-line no-console
     console.error("policy-agent handler error", { error });

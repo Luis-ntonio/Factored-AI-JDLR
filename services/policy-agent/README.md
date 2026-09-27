@@ -157,6 +157,44 @@ para `post_action` (Task "PostActionDecide") — caso ESCALATE real
 el fallback interno (apuntando `POLICY_FILE_PATH` a un archivo inexistente),
 compartido por ambos modos.
 
+## Guardrail de Bedrock (`src/bedrock/`) — el modelo propone, `policies.yaml` dispone
+
+Además del evaluador determinístico de arriba (que sigue intacto, sin
+cambios), `src/handler.ts` ahora intenta obtener una PROPUESTA de decisión
+de Amazon Bedrock y la combina con el resultado de
+`evaluatePreAction`/`evaluatePostAction` usando el mismo mecanismo
+"most-conservative-match-wins" (`SEVERITY_ORDER` de `src/types.ts`) que
+`evaluateStage` ya usa para combinar reglas entre sí — ahora también entre
+la propuesta del modelo y la del evaluador de reglas. Gana siempre la
+decisión de mayor severidad (`ESCALATE > CLARIFY > AUTO`), venga de donde
+venga.
+
+- `src/bedrock/model-decider.ts` — invoca Bedrock (Converse API, tool use
+  FORZADO vía `toolConfig`/`toolChoice`) y devuelve `ModelProposal |
+  null`. Reintentos acotados (2, backoff corto), nunca lanza. Una
+  `decision` fuera del enum `AUTO|CLARIFY|ESCALATE` se trata como
+  propuesta NO DISPONIBLE (`null`), nunca se coacciona a un default.
+- `src/bedrock/config.ts` — resuelve `modelId`/región desde SSM
+  (`BEDROCK_MODEL_ID_PARAM_NAME`/`BEDROCK_REGION_PARAM_NAME`), con caché en
+  memoria (mismo patrón `cachedPolicy`) y reintentos. Si las env vars no
+  están seteadas, o SSM falla, Bedrock se trata como no disponible sin
+  lanzar.
+- `src/bedrock/guardrail.ts` (`applyModelGuardrail`) — combina
+  `PolicyDecisionResult` (reglas) + `ModelProposal | null` (modelo). Si
+  `modelProposal` es `null`, devuelve `ruleResult` TAL CUAL, sin ningún
+  campo agregado — un fallo de Bedrock nunca degrada la seguridad de la
+  decisión, el sistema se comporta exactamente como antes de esta
+  integración. Si no, compara severidades y agrega, de forma ADITIVA y
+  opcional, `modelProposal`/`modelOverrideReason`/`decisionSource` al
+  `PolicyDecisionResult` (tipo `ExtendedPolicyDecisionResult`) —
+  `decision`/`matchedRules`/`winningRuleId`/`reason`/`askField` nunca
+  cambian de significado.
+
+Tests: `src/bedrock/model-decider.test.ts`, `src/bedrock/guardrail.test.ts`,
+`src/bedrock/config.test.ts`, `src/handler.bedrock.test.ts` — todos
+mockean Bedrock/SSM (nunca pegan a AWS real). `src/evaluator.test.ts` y
+`src/handler.test.ts` quedan **sin ningún cambio**.
+
 ## No implementado acá (fuera de scope de policy-agent)
 
 - `escalation-agent` — no existe todavía (fase 4 de `docs/PLAN.md`). Este
