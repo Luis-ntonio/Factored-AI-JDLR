@@ -966,5 +966,28 @@ Primera tarea de una fase 2 que extiende el proyecto más allá del cierre P2 (v
 - **QA independiente (reviewer), 5/5 puntos PASS, con comandos propios (no repitió ciegamente los de devops):** (1) `terraform plan` real desde `terraform/envs/dev` → "No changes", confirmado contra el state real (incluye `module.frontend.aws_cloudfront_distribution.frontend [id=E1PAQCTTFEQF75]` y `module.secrets.aws_ssm_parameter.bedrock_model_id`); (2) invocación de prueba real y propia a Bedrock (script Node con `@aws-sdk/client-bedrock-runtime`, el AWS CLI confirmado no instalado en esta máquina) → mismo `AccessDeniedException` que devops, confirmando que el bloqueador sigue vigente al momento del QA; (3) lectura de código confirmando OAC (no OAI) y bucket policy scoped; (4) `grep` confirmando 0 permisos de Bedrock en `modules/agent`; (5) `services/*` y la ASL no tocados (verificado por timestamps de archivo, ya que el repo no tiene ningún commit git todavía). **Hallazgo adicional del reviewer, fuera del alcance de esta tarea pero relevante:** el repositorio no tiene ningún commit (`git rev-list --all --count` = 0) — recomienda un commit inicial pronto para que futuras fases sean auditables por diff real en vez de por timestamps de archivo.
 
 ## Bloqueadores
-- **Bedrock "model access" no habilitado** para `us.anthropic.claude-sonnet-5` en la consola de AWS de este proyecto (cuenta `<AWS_ACCOUNT_ID>`, región `us-east-1`). Acción requerida (solo la puede hacer el usuario, no un agente): consola AWS → Amazon Bedrock → **Model access** → solicitar/habilitar acceso a "Claude Sonnet 5" (Anthropic). Confirmado con `AccessDeniedException` real en dos invocaciones de prueba independientes (devops y reviewer, en momentos distintos). Sin esto, el IAM que se agregue en la fase C/D no serviría de nada aunque estuviera bien escrito.
 - **Kinesis Firehose no habilitado/suscrito** en la cuenta AWS de este proyecto — bloquea aplicar `terraform/modules/analytics` (`enable_analytics_pipeline = true`). Confirmado con `SubscriptionRequiredException` en dos llamadas reales independientes (creación del delivery stream y una llamada de solo lectura). Acción requerida (solo la puede hacer el usuario): habilitar el servicio Kinesis Firehose en la cuenta, o contactar a AWS Support/Sales si el mensaje de error lo indica. El código Terraform ya está listo y validado (`terraform plan -var enable_analytics_pipeline=true` sin errores) — aplicar apenas se resuelva, sin cambios de código.
+
+## RESUELTO — acceso a Bedrock habilitado (modelo cambiado de Sonnet 5 a Sonnet 4.6)
+
+El bloqueador de "model access" de Bedrock quedó resuelto, pero **no con el
+modelo originalmente elegido**: `us.anthropic.claude-sonnet-5` sigue dando
+`AccessDeniedException` en esta cuenta (bloqueador de cuota específico de
+esa familia de modelo, no de IAM ni de "model access" general — confirmado
+por el usuario, que sí tiene acceso habilitado en la consola pero Sonnet 5
+no está disponible por cuota). **Se cambió a `us.anthropic.claude-sonnet-4-6`**
+(también requiere invocación vía inference profile, mismo mecanismo),
+verificado con una llamada `ConverseCommand` real exitosa:
+`{"message":{"role":"assistant","content":[{"text":"Ok"}]}}`.
+`bedrock_model_id` en `terraform.tfvars` actualizado y aplicado
+(`terraform apply` real, `terraform plan` posterior sin drift). El
+parámetro SSM `/{project}-{env}/bedrock/model_id` ahora contiene el ID real
+que sí funciona, no el placeholder original elegido.
+
+IDs verificados en esta cuenta vía `ListFoundationModelsCommand`/
+`ListInferenceProfilesCommand` reales (útil si en el futuro se necesita
+cambiar de modelo de nuevo): `anthropic.claude-sonnet-4-20250514-v1:0`,
+`anthropic.claude-sonnet-4-6`, `anthropic.claude-sonnet-4-5-20250929-v1:0`,
+`anthropic.claude-sonnet-5` — los 4 figuran en el catálogo con
+`inferenceTypesSupported: ["INFERENCE_PROFILE"]`, pero solo Sonnet 4.6 (de
+los probados) respondió con éxito en esta cuenta.

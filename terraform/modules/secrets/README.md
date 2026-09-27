@@ -37,49 +37,30 @@ Claude reales de la familia Anthropic en `us-east-1`, incluido
 ACTIVE`). **Los 15 modelos Anthropic listados tienen
 `inferenceTypesSupported: ["INFERENCE_PROFILE"]`, ninguno soporta
 `ON_DEMAND`** — confirma empíricamente lo que advertía el brief: hace falta
-invocar vía un **inference profile** (`us.anthropic.claude-sonnet-5`,
-confirmado con `ListInferenceProfilesCommand`, `type: SYSTEM_DEFINED`,
-`status: ACTIVE`), no el model ID directo.
+invocar vía un **inference profile** (confirmado con
+`ListInferenceProfilesCommand`, `type: SYSTEM_DEFINED`, `status: ACTIVE`),
+no el model ID directo. Aplica igual a toda la familia Sonnet reciente de
+Anthropic en esta cuenta/región.
 
-Se eligió `claude-sonnet-5` (vs. Haiku/Opus de la misma familia) por ser el
-modelo de nivel "Sonnet" (balance costo/latencia/capacidad) más reciente
-`ACTIVE` disponible, adecuado para un agente conversacional de chat en vez
-de una tarea de razonamiento pesado (Opus) o de latencia mínima extrema
-(Haiku) — sin evidencia de necesitar ninguno de esos dos extremos para este
-flujo de credit-product info & eligibility.
+**Modelo real en uso: `us.anthropic.claude-sonnet-4-6`, NO Sonnet 5.**
+Se eligió originalmente `claude-sonnet-5` por ser el más reciente de nivel
+"Sonnet" (balance costo/latencia/capacidad, sin necesitar el extremo de
+Opus ni de Haiku para este flujo) — pero esa familia específica de modelo
+da `AccessDeniedException` en esta cuenta por una limitación de cuota, no
+de IAM ni de "model access" general (el usuario confirmó tener "model
+access" habilitado en la consola; Sonnet 5 simplemente no está disponible
+para esta cuenta todavía). Se cambió a **Claude Sonnet 4.6**
+(`us.anthropic.claude-sonnet-4-6`), verificado con una invocación real
+exitosa (`ConverseCommand` → `{"message":{"role":"assistant","content":
+[{"text":"Ok"}]}}`). Si en el futuro se habilita Sonnet 5 en esta cuenta,
+alcanza con cambiar `bedrock_model_id` en `terraform.tfvars` y volver a
+aplicar — ningún otro cambio de código depende del modelo específico.
 
-### Bloqueador: model access
+### Bloqueador de model access — RESUELTO (con el modelo 4.6, no el 5)
 
-**No resuelto, requiere acción manual del usuario en la consola de AWS.**
-Se probó una invocación real de prueba (`ConverseCommand`, sin relación con
-ningún Lambda del proyecto — solo para confirmar el estado de la cuenta)
-contra `us.anthropic.claude-sonnet-5` y `anthropic.claude-sonnet-5`:
-
-```
-AccessDeniedException: anthropic.claude-sonnet-5 is not available for this
-account. You can explore other available models on Amazon Bedrock. For
-additional access options, contact AWS Sales at
-https://aws.amazon.com/contact-us/sales-support/
-```
-
-Esto es el mecanismo de **"model access"** de Bedrock: aparte del IAM de la
-cuenta/rol, cada modelo necesita ser habilitado explícitamente por
-model/región desde la consola (**Amazon Bedrock → Model access**) antes de
-que cualquier invocación (`InvokeModel`/`Converse`, con cualquier
-credencial, admin incluido) funcione. No es resoluble desde Terraform ni
-desde el AWS CLI/SDK — es una acción manual de la consola.
-
-**Acción exacta pendiente del usuario**: entrar a la consola de AWS, cuenta
-`<AWS_ACCOUNT_ID>`, región `us-east-1` → Amazon Bedrock → **Model access** →
-solicitar/habilitar acceso a **"Claude Sonnet 5"** (proveedor Anthropic).
-Repetir para `us-east-2`/`us-west-2` si se quiere que el inference profile
-`us.anthropic.claude-sonnet-5` pueda enrutar a esas regiones también (el
-profile lista los 3 endpoints regionales como destinos posibles).
-
-Mientras este acceso no esté habilitado, `terraform apply` de este módulo
-sigue funcionando sin problema (el SSM parameter solo guarda un string, no
-valida el modelo) — el bloqueo es en runtime, al momento en que algún
-Lambda intente invocar Bedrock (fase C/D, todavía no implementada).
+Ya no bloquea el avance a la fase C/D (Lambdas invocando Bedrock). Detalle
+completo de la investigación y la resolución en `docs/STATUS.md`, sección
+"RESUELTO — acceso a Bedrock habilitado".
 
 ## Cómo se espera que se use en fases futuras
 

@@ -665,7 +665,16 @@ Primera tarea de la fase 2 (extiende el proyecto más allá del cierre P2), ejec
 
 ## Pendiente de decidir (actualizado — Fase 2, infra adicional)
 
-- ~~Proveedor/modelo LLM concreto sobre Bedrock — SIGUE sin resolver~~ **RESUELTO (modelo elegido: `us.anthropic.claude-sonnet-5`)** — pero queda un bloqueador operativo nuevo: habilitar "model access" en la consola de Bedrock (ver `docs/STATUS.md`, sección Bloqueadores). No es una decisión de arquitectura pendiente, es una acción manual pendiente del usuario.
+- ~~Proveedor/modelo LLM concreto sobre Bedrock — SIGUE sin resolver~~
+  **RESUELTO por completo, incluido el bloqueador de "model access":** el
+  usuario habilitó acceso a Bedrock en la consola, pero el modelo
+  originalmente elegido (`us.anthropic.claude-sonnet-5`) seguía dando
+  `AccessDeniedException` por una limitación de CUOTA específica de esa
+  familia (no de IAM ni de "model access" general). Se cambió a
+  **`us.anthropic.claude-sonnet-4-6`**, verificado con una invocación
+  `ConverseCommand` real exitosa. `terraform.tfvars`/SSM actualizados y
+  aplicados, `terraform plan` sin drift. Detalle completo en
+  `docs/STATUS.md`, sección "RESUELTO — acceso a Bedrock habilitado".
 - Nuevo bloqueador: habilitar Kinesis Firehose en la cuenta AWS del proyecto para poder aplicar `terraform/modules/analytics` — ver `docs/STATUS.md`, sección Bloqueadores.
 - Reemplazar `AdministratorAccess` del usuario `banking-agent-dev` por una policy acotada — SIGUE sin resolver (sin relación con esta fase).
 - Política de retención real de `ttl` en `case_store` — SIGUE sin resolver, y ahora con una dimensión nueva: el futuro pipeline de analytics tampoco propaga TTL (documentado en `docs/STATUS.md`).
