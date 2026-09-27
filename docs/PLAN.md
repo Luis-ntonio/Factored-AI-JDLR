@@ -679,3 +679,36 @@ Primera tarea de la fase 2 (extiende el proyecto más allá del cierre P2), ejec
 - Reemplazar `AdministratorAccess` del usuario `banking-agent-dev` por una policy acotada — SIGUE sin resolver (sin relación con esta fase).
 - Política de retención real de `ttl` en `case_store` — SIGUE sin resolver, y ahora con una dimensión nueva: el futuro pipeline de analytics tampoco propaga TTL (documentado en `docs/STATUS.md`).
 - Nuevo (encontrado por el reviewer, fuera del alcance original de esta tarea): el repositorio no tiene ningún commit git todavía — recomendado hacer un commit inicial pronto para que las próximas fases sean auditables por diff real.
+
+## Decisiones y limitaciones registradas — Fase C/D (Bedrock real: Understand + Decide)
+
+Segunda tarea de la fase 2. Conecta Bedrock de verdad (invocado por código,
+no solo habilitado en infra) en `conversation-agent`/`policy-agent`.
+Detalle técnico completo en `docs/STATUS.md`, sección "Fase 2 — Bedrock
+real conectado" — acá el resumen de decisiones.
+
+- **Arquitectura confirmada por el usuario, implementada tal cual:** el
+  modelo propone (patrón "Jev" — salida tipada + confianza, tool use
+  forzado vía Converse API), el evaluador determinístico de `policies.yaml`
+  (sin cambios de código) decide de verdad — se reutiliza el mecanismo
+  "most-conservative-match-wins" ya existente para combinar reglas entre sí,
+  ahora también entre modelo y reglas.
+- **Fallback en cascada por diseño, no un parche:** Bedrock no disponible o
+  confianza baja → heurística/reglas puras (comportamiento idéntico al de
+  antes de esta fase). Un fallo de Bedrock nunca degrada seguridad ni
+  pierde el turno — mismo criterio de Reliability de todo el proyecto.
+- **IAM de Bedrock agregado ahora** (ya no diferido, como se decidió en la
+  fase A) — scoped a conversation-agent/policy-agent únicamente, al ARN del
+  inference profile real. Hallazgo real: el inference profile cross-region
+  necesitó los ARNs de `foundation-model` en 3 regiones, no solo el del
+  inference profile.
+- **Segunda interrupción por rate-limit de sesión en este proyecto**
+  (la primera fue en la fase i18n). Mismo protocolo: el coordinador auditó
+  el estado real en disco/AWS antes de seguir en vez de confiar en el
+  reporte parcial — resultó que ya estaba todo funcionando correctamente
+  (227 tests, `terraform plan` sin drift, invocación real a Bedrock
+  confirmada por CloudWatch Logs), solo faltaba la documentación central y
+  los commits.
+- **Costo/latencia aumentan** con cada turno (1-2 llamadas a Bedrock) — no
+  medido contra tráfico real, nueva limitación explícita de "Capacity
+  limits" para el cierre.

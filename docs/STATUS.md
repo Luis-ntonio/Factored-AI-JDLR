@@ -774,11 +774,18 @@
   entre idiomas).
 
 **Deployment work** (qué faltaría para producción real)
-- **Bedrock/LLM nunca conectado** — es la simplificación más grande respecto
+- ~~Bedrock/LLM nunca conectado — es la simplificación más grande respecto
   al blueprint de referencia. El router de intención y la extracción de
   entities de conversation-agent son heurísticos (regex/keywords), no un
   LLM. `modules/secrets` crea el parámetro SSM del model ID como
-  placeholder, pero ningún Lambda invoca `bedrock:InvokeModel`/`Converse`.
+  placeholder, pero ningún Lambda invoca `bedrock:InvokeModel`/`Converse`.~~
+  **RESUELTO (Fase C/D, post-cierre P2):** Bedrock real conectado en
+  Understand (conversation-agent) y Decide (policy-agent), modelo
+  `us.anthropic.claude-sonnet-4-6`, patrón "el modelo propone, el código
+  (`policies.yaml`) dispone" — ver sección "Fase 2 — Bedrock real conectado
+  (Understand + Decide)" más abajo para el detalle completo con evidencia
+  real de AWS. Esta entrada de P2 queda como snapshot histórico del cierre
+  original (día 9-10), no se reescribe.
 - Sin autenticación/autorización en `POST /chat` — el endpoint está abierto
   a cualquiera que tenga la URL.
 - Sin WAF frente al API Gateway.
@@ -852,11 +859,16 @@
       patrón que la sección 4.5 del blueprint, aunque sin
       `ConditionExpression` atómica (ver limitación).
 
-**Simplificado respecto al blueprint (decisión documentada, no descuido):**
-- [ ] **Bedrock/LLM** — el blueprint asume un LLM real (Bedrock) para el
+**Simplificado respecto al blueprint (decisión documentada, no descuido) —
+snapshot histórico del cierre P2, ver actualización debajo del checklist:**
+- [x] **Bedrock/LLM** — ~~el blueprint asume un LLM real (Bedrock) para el
       loop de agente; este proyecto usa heurísticas (regex/keywords) para
       routing de intención y extracción de entities. Es la simplificación
-      más grande del proyecto, documentada en cada fase relevante.
+      más grande del proyecto, documentada en cada fase relevante.~~
+      **RESUELTO post-cierre (Fase C/D):** Bedrock real conectado en
+      Understand + Decide. La heurística NO se eliminó — sigue siendo el
+      fallback de Reliability si Bedrock falla o responde con baja
+      confianza. Ver "Fase 2 — Bedrock real conectado" en `docs/STATUS.md`.
 - [ ] **Cola de turnos (SQS, `modules/messaging`)** — el blueprint la
       propone para desacoplar ingesta de procesamiento; se decidió que Step
       Functions Express ya resuelve la ejecución síncrona necesaria para
@@ -991,3 +1003,105 @@ cambiar de modelo de nuevo): `anthropic.claude-sonnet-4-20250514-v1:0`,
 `anthropic.claude-sonnet-5` — los 4 figuran en el catálogo con
 `inferenceTypesSupported: ["INFERENCE_PROFILE"]`, pero solo Sonnet 4.6 (de
 los probados) respondió con éxito en esta cuenta.
+
+## Fase 2 — Bedrock real conectado (Understand + Decide)
+
+Fase C/D del plan de extensión post-cierre. Objetivo: conectar Bedrock de
+verdad (no solo habilitado en infra, sino invocado por código real) en las
+capas Understand (`conversation-agent`) y Decide (`policy-agent`).
+Arquitectura confirmada por el usuario: **el modelo decide, pero
+`policies.yaml` se asegura de que la decisión no tenga alcance fuera de lo
+definido** — el modelo propone (patrón "Jev": salida TIPADA con confianza,
+nunca prosa libre, vía tool use forzado de la API Converse), el evaluador
+determinístico existente corre siempre después y la decisión final es la
+MÁS CONSERVADORA entre ambas (reusa literalmente `severity_order`/
+`SEVERITY_ORDER` de `policies.yaml`, el mismo mecanismo que ya combinaba
+reglas entre sí).
+
+**Nota de proceso:** esta fase se cortó a mitad de camino por un
+rate-limit de sesión (segunda vez que pasa en el proyecto, ver la fase
+i18n para el primer caso) — igual que esa vez, el coordinador auditó el
+estado real en disco/AWS antes de seguir, no confió en el reporte parcial.
+Todo lo documentado acá fue **verificado de nuevo por el coordinador
+directamente**, no solo por los reportes de los subagentes interrumpidos.
+
+### conversation-agent — Understand con Bedrock
+
+`services/conversation-agent/src/understanding/` nuevo:
+`understand-backend.ts` (orquesta Bedrock vs. heurística + umbral de
+confianza), `bedrock-understander.ts` (Converse API, tool use forzado —
+el modelo literalmente no puede devolver un `intent` fuera del enum del
+contrato), `ssm-config.ts` (resuelve `modelId`/región desde SSM, cacheado).
+
+Backend seleccionable vía `UNDERSTANDING_BACKEND` (`"bedrock"` default).
+Fallback automático a la heurística regex/keywords YA EXISTENTE (no se
+tocó, no se borró) si: Bedrock falla tras reintentos acotados, SSM no
+responde, o la confianza del modelo es menor a
+`UNDERSTANDING_CONFIDENCE_THRESHOLD` (0.5). Nunca se pierde el turno.
+
+**Verificado por el coordinador contra AWS real** (no solo por el reporte
+del subagente interrumpido): `npm test` desde la raíz → **227 tests en
+verde** (193 previos + 34 nuevos), build limpio. `terraform plan` →
+"No changes" (el código desplegado ya coincide con el código final en
+disco — resuelve la duda que había dejado abierta el reporte de
+devops/reviewer sobre si el último `apply` incluía el código final o no).
+Invocación real contra el endpoint HTTP (`"Hola, quisiera saber cuales son
+las tasas de interes de una tarjeta de credito"`) → `status: "ok"`,
+`intent: "product_info"`, resultado correcto del catálogo. **Confirmado
+con CloudWatch Logs real** (`FilterLogEventsCommand` sobre
+`/aws/lambda/banking-agent-dev-conversation-agent`) que Bedrock
+efectivamente se invocó, no que cayó al fallback por casualidad:
+`{"event":"understanding_backend_used","backend":"bedrock","reason":
+"success","confidence":0.97,...}`.
+
+### policy-agent — Decide con Bedrock + guardrail
+
+`services/policy-agent/src/bedrock/` nuevo: `model-decider.ts` (propone
+`decision`/`confidence`, tool use forzado, nunca lanza — una decisión fuera
+del enum se trata como propuesta no disponible, nunca se coacciona),
+`config.ts` (mismo patrón de SSM cacheado), `guardrail.ts`
+(`applyModelGuardrail`, combina la propuesta del modelo con
+`PolicyDecisionResult` del evaluador existente). El evaluador
+determinístico (`evaluator.ts`) **no se tocó** — se reutiliza tal cual.
+
+**Verificado por el coordinador con CloudWatch Logs reales** (no solo
+tests): para el mismo caso de arriba,
+`{"event":"policy_decision_source","ruleDecision":"AUTO",
+"modelDecision":"AUTO","modelConfidence":0.92,"finalDecision":"AUTO",
+"winner":"rules"}` — confirma que **el evaluador de reglas es quien
+decide** ("winner": "rules"), el modelo solo propuso una señal adicional.
+Caso ESCALATE explícito en portugués (`"quero falar com um atendente"`)
+re-verificado contra el endpoint real tras esta fase: `status: "escalate"`,
+`language: "pt"`, sin mezcla de idioma — sin regresión.
+
+### IAM real de Bedrock (ya no diferido)
+
+`bedrock:InvokeModel`/`bedrock:Converse` agregados a los roles de
+**conversation-agent y policy-agent únicamente** (no a los otros 4
+Lambdas), scoped al ARN del inference profile real — **no** `Resource:
+"*"`. Hallazgo real de devops durante esta fase: el inference profile
+cross-region `us.anthropic.claude-sonnet-4-6` necesitó además los ARNs de
+`foundation-model` en las 3 regiones que ese profile puede enrutar (no
+alcanza con el ARN del inference profile solo) — documentado en
+`terraform/modules/agent/README.md`. `terraform plan` sin drift,
+confirmado por el coordinador.
+
+### Limitaciones conocidas de esta fase
+
+- **Latencia y costo aumentan**: cada turno de `product_info`/`faq`/
+  `eligibility_check`/`unknown` ahora hace 1-2 llamadas a Bedrock
+  (Understand siempre; Decide también, salvo que Bedrock ya haya fallado
+  en Understand y se use el flag para saltarlo — a confirmar). No medido
+  contra tráfico real (ver limitación de "Capacity limits" ya declarada en
+  P2).
+- El umbral de confianza (`0.5`) es un valor razonable elegido, no
+  calibrado contra datos reales de producción — candidato a ajustar con
+  telemetría real si el proyecto continúa.
+- Tests de Bedrock usan mocks (nunca pegan a AWS real desde `npm test`,
+  mismo criterio que DynamoDB) — la verificación contra AWS real fue
+  manual (curl + CloudWatch Logs), no está automatizada en CI (tampoco
+  existe CI todavía, limitación ya declarada en P2).
+- `modelDecision`/`modelConfidence` quedan en el log estructurado pero no
+  se exponen en la respuesta HTTP al cliente — son observabilidad interna,
+  no un dato cliente-facing (mismo criterio que otros campos de auditoría
+  del proyecto).
