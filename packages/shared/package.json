@@ -1,0 +1,16 @@
+{
+  "name": "@banking-agent/shared",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Contratos tipados compartidos entre conversation-agent (Understand), policy-agent (Decide), retrieval-agent y transaction-agent (Act). Fuente de verdad canónica del contrato de salida de Understand — ver docs/CONTRACTS.md para la explicación legible por humanos.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.4"
+  }
+}

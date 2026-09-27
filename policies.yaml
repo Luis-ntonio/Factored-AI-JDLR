@@ -1,0 +1,575 @@
+# =============================================================================
+# policies.yaml — Capa "Decide" (policy-agent)
+# =============================================================================
+#
+# UBICACION: raíz del monorepo (no docs/). Razones:
+#   1. docs/CONTRACTS.md (sección 1) ya refiere a este archivo como
+#      "policies.yaml" sin prefijo de carpeta — mantenemos esa referencia
+#      literal para no romper el enlace mental entre agentes.
+#   2. Es config de RUNTIME (la lee un evaluador en tiempo de ejecución,
+#      ver services/policy-agent/), no documentación en prosa — vive junto a
+#      package.json / tsconfig.base.json, los otros archivos de config de
+#      raíz del monorepo, no dentro de docs/ (reservado para Markdown).
+#   3. Facilita el bundling a Lambda (un solo archivo en la raíz del repo,
+#      sin resolver rutas relativas hacia docs/ en tiempo de deploy).
+#
+# FUENTE DE VERDAD DE NOMBRES DE CAMPO:
+#   packages/shared/src/contracts/understand-output.ts
+#   Todos los `field:` de abajo son rutas literales sobre un objeto
+#   `UnderstandOutput` (para stage: pre_action) tal como lo define ese
+#   archivo TypeScript. NO son alias — si ese archivo cambia un nombre,
+#   este YAML se rompe en silencio (no hay chequeo de tipos cruzado
+#   YAML<->TS todavía, ver "Limitaciones" al final de este archivo).
+#
+# QUIEN EVALÚA ESTO:
+#   services/policy-agent/src/evaluator.ts (opcional, ver README de ese
+#   paquete). Este YAML es legible y auditable por sí mismo aunque el
+#   evaluador de código no exista o no esté verificado todavía — un humano
+#   debe poder leer una regla y entender la decisión sin correr código.
+#
+# =============================================================================
+
+version: 1
+
+meta:
+  owner: policy-agent
+  understand_output_contract: packages/shared/src/contracts/understand-output.ts
+  contracts_doc: docs/CONTRACTS.md
+  decision_values: [AUTO, CLARIFY, ESCALATE]
+  # Orden de "conservadurismo" creciente. Se usa para desempate — ver
+  # `evaluation_semantics` abajo. NUNCA se agrega un valor nuevo sin
+  # actualizar también el evaluador (severidad hardcodeada ahí por claridad).
+  severity_order:
+    AUTO: 0
+    CLARIFY: 1
+    ESCALATE: 2
+
+# =============================================================================
+# SEMÁNTICA DE EVALUACIÓN (leer antes de agregar/editar reglas)
+# =============================================================================
+evaluation_semantics:
+  model: "most_conservative_match_wins"
+  description: >
+    NO es "la primera regla que matchea gana" ni "la regla más específica
+    gana". El evaluador recolecta TODAS las reglas de la stage
+    correspondiente (pre_action o post_action) cuyo `when` sea verdadero
+    para el UnderstandOutput/resultado del turno. Si ninguna matchea, se
+    aplica el fallback por defecto (ver abajo). Si una o más matchean, la
+    decisión final es la MÁS CONSERVADORA entre las que matchearon, usando
+    `severity_order` (ESCALATE > CLARIFY > AUTO). Esto formaliza
+    estructuralmente, en vez de dejarlo implícito en un prompt, las dos
+    reglas de desempate que dio el diseño original:
+      - "cuando dudes entre AUTO y CLARIFY, elige CLARIFY"
+        => si matchea una regla AUTO y otra CLARIFY para el mismo turno,
+           gana CLARIFY (severidad 1 > 0).
+      - "cuando dudes entre CLARIFY y ESCALATE, elige ESCALATE"
+        => si matchea una regla CLARIFY y otra ESCALATE para el mismo
+           turno, gana ESCALATE (severidad 2 > 1).
+    Ejemplo real de este archivo: para `intent: eligibility_check` con
+    `missing_fields` vacío, la regla `auto-eligibility-complete` (AUTO)
+    SIEMPRE matchea (no excluye explícitamente los casos de excepción).
+    Si ADEMÁS matchea `escalate-eligibility-unemployed` (porque
+    employment_status = "unemployed"), el resultado final es ESCALATE, no
+    AUTO — sin que `auto-eligibility-complete` necesite excluir ese caso
+    a mano. Esto es deliberado: cada regla de excepción se declara una
+    sola vez, en un solo lugar, y el modelo de severidad garantiza que
+    "más conservador gana" sin duplicar condiciones negativas por todos
+    lados (ver también nota de mantenibilidad al final del archivo).
+  tie_break_within_same_severity: >
+    Si dos o más reglas matchean con la MISMA severidad (ej. dos reglas
+    ESCALATE distintas), la que aparece primero en el array `rules` (orden
+    de aparición en este archivo) determina qué `reason`/`ask_field` se
+    muestra al usuario/observabilidad. Todas las reglas que matchearon se
+    registran igual en el log de auditoría (`matchedRules`), no solo la
+    "ganadora" — para trazabilidad completa en la demo.
+  default_when_no_rule_matches: ESCALATE
+  default_reason: >
+    Ninguna regla explícita de este archivo cubre la combinación de
+    intent/entities/missing_fields/context recibida (ej. un valor de
+    `intent` nuevo agregado al contrato TS pero no reflejado todavía acá,
+    o una combinación de entities no anticipada). Tratamos esto como el
+    caso límite de máxima incertidumbre: nunca se autoriza AUTO por
+    default, y entre CLARIFY/ESCALATE para lo no anticipado se elige el
+    más conservador (ESCALATE) en vez de arriesgar una pregunta de
+    clarificación que no cubre el caso real. Este fallback casi nunca
+    debería dispararse en la práctica: unknown/product_info/
+    eligibility_check/faq/escalation_request ya tienen reglas explícitas
+    que cubren TODOS sus estados posibles de `missing_fields` — es una
+    red de seguridad para drift de contrato, no el camino esperado.
+
+# =============================================================================
+# SECURITY — qué datos se retienen/exponen (pilar Security, ver
+# docs/EVALUATION-CRITERIA.md)
+# =============================================================================
+security:
+  pii_fields:
+    - entities.document_id   # valor crudo del documento de identidad, PII directa
+  rules:
+    - id: sec-no-raw-pii-in-reason
+      statement: >
+        El campo `reason` de CUALQUIER regla de este archivo es texto
+        ESTÁTICO (fijo en este YAML), nunca una plantilla interpolada con
+        el valor real de una entity. En particular, el valor crudo de
+        `entities.document_id` NUNCA debe aparecer en un `reason`, log de
+        decisión, o payload hacia escalation-agent en texto plano. El
+        evaluador (si se implementa en código) NO debe hacer string
+        interpolation de `entities.*` dentro de `reason` — es una
+        restricción de diseño, no solo una convención de estilo.
+    - id: sec-masked-identifier-for-escalation
+      statement: >
+        Cuando la decisión final es ESCALATE, el resumen estructurado que
+        recibe escalation-agent debe referenciar al solicitante por
+        `context.caseId` / `context.customerId` (ya no-PII, son
+        identificadores internos) y, si necesita mostrar el documento, por
+        una versión ENMASCARADA (ej. últimos 4 dígitos) — nunca
+        `entities.document_id` crudo. RESUELTO: implementado en
+        `services/escalation-agent`
+        (`packages/shared/src/contracts/escalation-summary.ts`, campo
+        `EscalationSummary.maskedDocumentId`) — el documento nunca aparece
+        crudo en el resumen de escalación: se enmascara dejando los últimos
+        4 caracteres visibles, y además hay una pasada de redacción
+        recursiva de defensa en profundidad sobre todo el objeto de salida
+        por si algún `reason` ajeno lo incluyera por error (probado
+        explícitamente en `services/escalation-agent/test/security.test.ts`,
+        incluyendo un caso adversarial). `knownEntities` del resumen
+        excluye directamente la key `document_id` (ni siquiera enmascarada
+        aparece ahí, para no tener dos formas paralelas del mismo dato).
+    - id: sec-retention-placeholder-ack
+      statement: >
+        La tabla DynamoDB (terraform/modules/data) ya persiste
+        `entities.document_id` con TTL placeholder de 30 días
+        (`DEFAULT_TTL_DAYS` en conversation-agent, ver docs/CONTRACTS.md
+        sección 7) sin cifrado adicional a nivel de aplicación. policy-agent
+        no cambia esa retención en este checkpoint (no toca infra) — se deja
+        registrado como pendiente de definir una política de retención real
+        antes de producción (ver docs/STATUS.md, pilar Security).
+
+# =============================================================================
+# CONFIG — umbrales de negocio, todos configurables (nunca hardcodeados en
+# prosa dentro de una regla). Valores placeholder razonables para la demo,
+# a validar con negocio real antes de producción.
+# =============================================================================
+config:
+  # Monto de crédito solicitado por encima del cual se exige revisión humana
+  # antes de aprobar automáticamente. Sin resolución de moneda (ver
+  # docs/CONTRACTS.md sección 8 "Limitaciones" — income/requested_amount son
+  # números crudos sin unidad); se asume una única moneda implícita para la
+  # demo. Valor elegido como placeholder conservador de "monto alto para un
+  # préstamo personal", a validar con negocio real.
+  high_risk_amount_threshold: 50000
+
+  # Zona límite de score de elegibilidad (CONFIRMADO, ver sección post_action
+  # más abajo — services/transaction-agent lee estos dos valores directamente
+  # de este archivo en runtime, mismo mecanismo js-yaml que este evaluador,
+  # para derivar `score_zone`; nunca los hardcodea por separado).
+  borderline_score_min: 55
+  borderline_score_max: 70
+
+# =============================================================================
+# REGLAS — stage: pre_action
+# (Understand -> Decide, antes de autorizar retrieval-agent/transaction-agent)
+# Orden en el archivo: agrupadas por severidad (ESCALATE, luego CLARIFY,
+# luego AUTO) solo por legibilidad — NO determina la decisión final, ver
+# `evaluation_semantics` arriba.
+# =============================================================================
+rules:
+
+  # --- ESCALATE ---------------------------------------------------------
+
+  - id: escalate-explicit-request
+    stage: pre_action
+    when:
+      all:
+        - field: intent
+          op: eq
+          value: escalation_request
+    decision: ESCALATE
+    reason: >
+      Pedido explícito de hablar con un humano (intent = escalation_request).
+      Gana sobre cualquier otra señal del mismo turno, sin excepción (ver
+      docs/CONTRACTS.md 4.1: "escalation_request... gana sobre cualquier
+      otra señal en el mismo mensaje").
+
+  - id: escalate-eligibility-unemployed
+    stage: pre_action
+    when:
+      all:
+        - field: intent
+          op: eq
+          value: eligibility_check
+        - field: entities.employment_status
+          op: eq
+          value: unemployed
+    decision: ESCALATE
+    reason: >
+      Excepción de política de riesgo simulada para este flujo: un
+      solicitante que declara no tener empleo (`employment_status =
+      unemployed`) y pide una evaluación de crédito requiere revisión
+      humana antes de calcular elegibilidad, independientemente de si el
+      resto de `entities` está completo (`missing_fields` puede estar
+      vacío). No es un juicio automático de rechazo, es una excepción que
+      saca el caso del camino 100% automatizado.
+
+  - id: escalate-eligibility-amount-over-threshold
+    stage: pre_action
+    when:
+      all:
+        - field: intent
+          op: eq
+          value: eligibility_check
+        - field: entities.requested_amount
+          op: gt
+          value_ref: high_risk_amount_threshold
+    decision: ESCALATE
+    reason: >
+      El monto solicitado (`entities.requested_amount`) supera el umbral
+      configurable `config.high_risk_amount_threshold`. Se modela como
+      regla de negocio simulada: montos altos exceden el apetito de riesgo
+      para aprobación 100% automática y requieren revisión humana antes de
+      calcular elegibilidad.
+
+  # --- CLARIFY ------------------------------------------------------------
+
+  - id: clarify-unknown-always
+    stage: pre_action
+    when:
+      all:
+        - field: intent
+          op: eq
+          value: unknown
+    decision: CLARIFY
+    reason: >
+      Intent no clasificable con confianza suficiente. conversation-agent
+      nunca "adivina" un intent solo para evitar `unknown` (docs/CONTRACTS.md
+      4.1) — policy-agent tampoco escala ni ejecuta solo por esto; se pide
+      al usuario reformular su solicitud. Única excepción: si el mismo
+      mensaje también dispara `escalation_request` en un turno futuro, esa
+      regla (severidad ESCALATE) gana por el modelo de "más conservador
+      gana" — pero eso nunca ocurre en el mismo `intent` porque `intent` es
+      un único valor de enum por turno, no una lista.
+
+  - id: clarify-product-info-incomplete
+    stage: pre_action
+    when:
+      all:
+        - field: intent
+          op: eq
+          value: product_info
+        - field: missing_fields
+          op: not_empty
+    decision: CLARIFY
+    ask_field: product_type
+    reason: >
+      Falta `product_type` (única entity requerida por
+      REQUIRED_ENTITIES_BY_INTENT.product_info) — sin él no se puede
+      identificar qué catálogo/condiciones devolver.
+
+  - id: clarify-eligibility-missing-fields
+    stage: pre_action
+    when:
+      all:
+        - field: intent
+          op: eq
+          value: eligibility_check
+        - field: missing_fields
+          op: not_empty
+    decision: CLARIFY
+    # Orden de prioridad para elegir QUÉ campo preguntar primero cuando
+    # `missing_fields` tiene más de uno. El evaluador toma el primer
+    # elemento de esta lista que también esté presente en `missing_fields`.
+    # Justificación del orden (de más a menos prioritario):
+    #   1. product_type   — sin saber el producto, ninguna otra pregunta de
+    #                        seguimiento (tasas, montos típicos, requisitos)
+    #                        tiene contexto; es la pregunta de menor fricción
+    #                        y la que más acota el resto de la conversación.
+    #   2. income          — el dato de mayor peso para saber si vale la
+    #                        pena seguir pidiendo el resto (si el ingreso es
+    #                        claramente insuficiente para el producto, se
+    #                        puede re-encauzar antes de pedir datos más
+    #                        sensibles); baja fricción, no es PII.
+    #   3. document_id     — dato sensible (PII, ver sección `security`);
+    #                        se pide DESPUÉS de establecer que la
+    #                        conversación tiene sentido (producto + ingreso
+    #                        ya conocidos), no como primera pregunta.
+    #   4. employment_status, requested_amount, existing_customer — resto
+    #      de REQUIRED_ENTITIES_BY_INTENT.eligibility_check, en el mismo
+    #      orden en que aparecen en esa matriz (packages/shared), por
+    #      consistencia y para no introducir un criterio nuevo sin razón.
+    ask_field_priority:
+      - product_type
+      - income
+      - document_id
+      - employment_status
+      - requested_amount
+      - existing_customer
+    reason: >
+      Faltan uno o más `entities` requeridos por
+      REQUIRED_ENTITIES_BY_INTENT.eligibility_check
+      (packages/shared/src/contracts/understand-output.ts). Se pregunta el
+      primero de `ask_field_priority` que esté presente en `missing_fields`.
+
+  - id: clarify-eligibility-document-type-not-explicit
+    stage: pre_action
+    when:
+      all:
+        - field: intent
+          op: eq
+          value: eligibility_check
+        - field: missing_fields
+          op: empty
+        - any:
+            - field: entities.document_type
+              op: empty
+            - field: entities.document_type
+              op: eq
+              value: unknown
+    decision: CLARIFY
+    ask_field: document_type
+    reason: >
+      Regla ADICIONAL de policy-agent, más estricta que
+      REQUIRED_ENTITIES_BY_INTENT (que solo exige `document_id`, no
+      `document_type`) — ver docs/CONTRACTS.md sección 4.4 ("policy-agent
+      puede exigir campos ADICIONALES más estrictos"). Sin un
+      `document_type` explícito y distinto de "unknown" no se puede aplicar
+      la validación de formato específica por país/tipo de documento antes
+      de pasar a transaction-agent (ver limitación de cobertura de
+      documentos en docs/CONTRACTS.md sección 8).
+
+  - id: clarify-eligibility-degraded-context
+    stage: pre_action
+    when:
+      all:
+        - field: intent
+          op: eq
+          value: eligibility_check
+        - field: missing_fields
+          op: empty
+        - field: context.degraded
+          op: eq
+          value: true
+    decision: CLARIFY
+    reason: >
+      El turno se procesó con `context.degraded = true` (DynamoDB no
+      respondió, ver `context.degradedReason`) — conversation-agent pudo
+      haber re-preguntado datos que el usuario ya había dado antes, o el
+      merge de `entities` puede no reflejar fielmente el historial real
+      (docs/CONTRACTS.md sección 6). Esto es degradación de
+      infraestructura, NO una señal de riesgo del usuario: por diseño NO
+      se ESCALA solo por `degraded = true`. En este caso límite (los datos
+      requeridos aparecen completos, que normalmente autorizaría AUTO) se
+      prefiere CLARIFY para confirmar antes de pasar a transaction-agent.
+      Este turno debe quedar logueado/observable como "confianza reducida"
+      (coordinar con verification-agent, no implementado acá).
+
+  # --- AUTO -----------------------------------------------------------
+
+  - id: auto-faq-always
+    stage: pre_action
+    when:
+      all:
+        - field: intent
+          op: eq
+          value: faq
+    decision: AUTO
+    reason: >
+      `faq` es información general no transaccional (horarios, canales,
+      definiciones) sin `entities` sensibles involucradas — bajo riesgo,
+      no requiere ningún dato adicional (REQUIRED_ENTITIES_BY_INTENT.faq
+      = []).
+
+  - id: auto-product-info-complete
+    stage: pre_action
+    when:
+      all:
+        - field: intent
+          op: eq
+          value: product_info
+        - field: missing_fields
+          op: empty
+    decision: AUTO
+    reason: >
+      `product_type` ya conocido (única entity requerida por
+      REQUIRED_ENTITIES_BY_INTENT.product_info) — es consulta de catálogo
+      de solo lectura, bajo riesgo, sin datos personales sensibles
+      involucrados en la respuesta.
+
+  - id: auto-eligibility-complete
+    stage: pre_action
+    when:
+      all:
+        - field: intent
+          op: eq
+          value: eligibility_check
+        - field: missing_fields
+          op: empty
+    decision: AUTO
+    reason: >
+      Todos los `entities` requeridos por
+      REQUIRED_ENTITIES_BY_INTENT.eligibility_check están presentes; se
+      autoriza pasar a transaction-agent para calcular elegibilidad de
+      forma determinística. IMPORTANTE: esta regla NO excluye a propósito
+      los casos de excepción (empleo, monto, tipo de documento, contexto
+      degradado) — si alguna de esas reglas (severidad ESCALATE o CLARIFY)
+      también matchea el mismo turno, esa regla gana por el modelo
+      "más conservador gana" descrito en `evaluation_semantics`. Ver ese
+      bloque para el ejemplo completo.
+
+# =============================================================================
+# stage: post_action — contrato CONFIRMADO con transaction-agent
+# =============================================================================
+#
+# services/transaction-agent (implementado, ver docs/PLAN.md "Días 3-5 —
+# Act, transaction-agent") es el productor real de este contrato. Las reglas
+# de esta sección ya no son una propuesta: son ejecutables contra el
+# `EligibilityResult` real que produce `computeEligibility`
+# (services/transaction-agent/src/compute-eligibility.ts).
+#
+# FUENTE DE VERDAD DE NOMBRES DE CAMPO (mismo patrón que
+# `UnderstandOutput` al inicio de este archivo):
+#   packages/shared/src/contracts/eligibility-result.ts
+#   Todos los `field:` de las reglas `post_action` de abajo son rutas
+#   literales sobre un objeto `EligibilityResult` tal como lo define ese
+#   archivo TypeScript. NO son alias — si ese archivo cambia un nombre,
+#   este YAML se rompe en silencio (misma limitación ya declarada para
+#   `UnderstandOutput`, ver "Limitaciones" al final de este archivo).
+#
+# Contrato de entrada CONFIRMADO (EligibilityResult):
+#   interface EligibilityResult {
+#     caseId: string;            // correlaciona con
+#                                 // UnderstandOutput.context.caseId
+#     productType: ProductType;  // eco de entities.product_type usado
+#                                 // para el cálculo
+#     eligibility_score: number; // escala 0-100, confirmada
+#     score_zone: "approved" | "borderline" | "declined";
+#   }
+#
+# Resolución de las 3 preguntas que este archivo dejaba abiertas
+# (`post_action_contract_status: PROPOSAL_NOT_CONFIRMED`), tal como las
+# confirmó transaction-agent:
+#   1. Escala de `eligibility_score`: 0-100, confirmado. Era la escala ya
+#      asumida por `config.borderline_score_min`/`_max` de este archivo —
+#      no se introdujo una escala nueva.
+#   2. Quién calcula `score_zone`: transaction-agent, no policy-agent.
+#      Para no duplicar el umbral en dos lugares desincronizables,
+#      transaction-agent LEE `config.borderline_score_min`/
+#      `config.borderline_score_max` directamente de este archivo en
+#      tiempo de ejecución (con `js-yaml`, el mismo mecanismo que usa
+#      `services/policy-agent/src/evaluator.ts`) en vez de hardcodear esos
+#      números por separado. Regla de derivación aplicada por
+#      transaction-agent: `score < borderline_score_min` -> "declined";
+#      `score > borderline_score_max` -> "approved";
+#      `borderline_score_min <= score <= borderline_score_max` (inclusive)
+#      -> "borderline". CONFIRMADO: por esta misma razón, las dos señales
+#      que la regla `escalate-score-borderline` de abajo combina con `any`
+#      (OR) — el `score_zone` reportado explícitamente, y el
+#      `eligibility_score` numérico contra estos mismos umbrales —
+#      SIEMPRE van a coincidir, porque nacen de la misma fuente de
+#      config. La regla se deja igual (OR de ambas señales) por
+#      robustez/legibilidad, no porque pudieran divergir en la práctica.
+#   3. Correlación por `caseId` si el cálculo fuera async: el cálculo de
+#      transaction-agent es SÍNCRONO en este checkpoint (no hay Step
+#      Functions ni cola de turnos todavía, ver docs/PLAN.md "Pendiente de
+#      decidir" — esa decisión de arquitectura sigue abierta). El
+#      resultado se persiste en la MISMA tabla real
+#      `banking-agent-dev-case-store`, MISMA partición
+#      `pk = CASE#<caseId>` que ya usa conversation-agent
+#      (`sk = RESULT#eligibility#<turnId>`, idempotencia por
+#      `caseId:turnId`) — un consumidor futuro puede reconstruir el caso
+#      completo con un `Query` sobre `pk = CASE#<caseId>` sin necesitar un
+#      mecanismo de correlación aparte. Si en una fase futura el cálculo
+#      se vuelve asíncrono, este mismo par `caseId`+`turnId` sigue siendo
+#      la clave de correlación válida.
+#
+post_action_contract_status: CONFIRMED
+
+post_action_rules:
+
+  - id: escalate-score-borderline
+    stage: post_action
+    when:
+      any:
+        - field: score_zone
+          op: eq
+          value: borderline
+        - all:
+            - field: eligibility_score
+              op: gte
+              value_ref: borderline_score_min
+            - field: eligibility_score
+              op: lte
+              value_ref: borderline_score_max
+    decision: ESCALATE
+    reason: >
+      Score de elegibilidad en zona límite configurable
+      (config.borderline_score_min..borderline_score_max) o `score_zone`
+      reportado explícitamente como "borderline" por transaction-agent —
+      requiere revisión humana antes de comunicar un veredicto de
+      elegibilidad al usuario. Regla explícitamente pedida por la tarea
+      original de este checkpoint ("ESCALATE si score en zona límite").
+
+  - id: auto-score-approved
+    stage: post_action
+    when:
+      all:
+        - field: score_zone
+          op: eq
+          value: approved
+    decision: AUTO
+    reason: >
+      Score fuera de la zona límite configurada, en la zona de aprobación
+      — se autoriza comunicar el resultado positivo sin intervención
+      humana.
+
+  - id: auto-score-declined
+    stage: post_action
+    when:
+      all:
+        - field: score_zone
+          op: eq
+          value: declined
+    decision: AUTO
+    reason: >
+      Score fuera de la zona límite configurada, en la zona de rechazo —
+      se autoriza comunicar el resultado negativo de forma determinística.
+      LIMITACIÓN DECLARADA: no se modela acá ningún requisito regulatorio
+      de "adverse action notice" (aviso formal de motivo de rechazo) — si
+      el dominio real lo requiere, es una regla a agregar en fase de
+      escalation-agent/legal, no cubierta en este checkpoint.
+
+# =============================================================================
+# LIMITACIONES CONOCIDAS DE ESTE ARCHIVO (ver también docs/STATUS.md)
+# =============================================================================
+# - No hay validación automática de que los `field:` usados acá existan
+#   literalmente en packages/shared/src/contracts/understand-output.ts —
+#   la consistencia se mantiene a mano hasta que se automatice (ver
+#   docs/CONTRACTS.md sección 2, "JSON Schema espejo" pendiente). Un
+#   evaluador en código (services/policy-agent, si se implementa) puede
+#   mitigar esto con un type guard sobre `field` contra `ENTITY_KEYS` +
+#   claves conocidas de `context`, pero no está garantizado en este
+#   checkpoint.
+# - Sin moneda/país resueltos para `income`/`requested_amount`
+#   (docs/CONTRACTS.md sección 8) — `high_risk_amount_threshold` asume una
+#   única moneda implícita; si el dominio real maneja multi-moneda, este
+#   archivo necesita un campo de moneda que conversation-agent todavía no
+#   produce.
+# - `post_action_rules` ya tienen contraparte productora real y CONFIRMADA
+#   (`services/transaction-agent`, `EligibilityResult` en
+#   `packages/shared/src/contracts/eligibility-result.ts`) — son
+#   ejecutables hoy contra `evaluatePostAction`. Lo que SIGUE faltando es
+#   un orquestador end-to-end desplegado que invoque conversation-agent ->
+#   policy-agent (pre_action) -> transaction-agent -> policy-agent
+#   (post_action) en un mismo flujo real sobre AWS: cada pieza está
+#   probada por separado (y con tests de integración que encadenan los
+#   paquetes compilados), pero no hay todavía un Lambda/Step Functions que
+#   las conecte en producción (ver docs/STATUS.md, transaction-agent).
+# - Este archivo no fue probado contra casos reales por un evaluador de
+#   código verificado en este checkpoint (ver services/policy-agent/README.md
+#   si existe, o el reporte de la tarea que generó este archivo) — un
+#   reviewer debe correr `npm test` sobre `services/policy-agent` (si se
+#   implementó) antes de dar esta pieza por validada en producción.
+# - `post_action_rules` sigue sin estar conectado a un segundo paso de
+#   decisión real dentro del orquestador desplegado (Step Function): el
+#   resultado de transaction-agent pasa por verification-agent (que solo
+#   confirma consistencia interna de `score_zone`), pero nada vuelve a
+#   invocar `evaluatePostAction` sobre ese resultado en producción hoy —
+#   ver docs/STATUS.md, sección P0, "Riesgo conocido".
