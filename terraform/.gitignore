@@ -1,0 +1,24 @@
+# Terraform local state / working dirs (backend local en este checkpoint —
+# ver envs/dev/backend.tf y README.md sobre la limitación).
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+tfplan.out
+
+# El .terraform.lock.hcl SÍ se versiona (Reproducibility) — no lo ignoramos.
+
+# Nunca versionar tfvars reales — solo el .example.
+**/terraform.tfvars
+**/*.auto.tfvars
+
+# Build artifacts de los Lambdas (bundles esbuild + zips), regenerados por
+# terraform/scripts/package-lambdas.js en cada `terraform apply` (o
+# `npm run package:lambdas` a mano) -- nunca se versionan, son output de
+# build, no fuente.
+modules/agent/build/
+modules/orchestration/build/
+modules/analytics/build/
+
+crash.log
+crash.*.log

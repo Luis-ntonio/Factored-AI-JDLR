@@ -1,0 +1,49 @@
+# Copiar a terraform.tfvars (NO versionado — ver .gitignore) y ajustar.
+# Todos los valores tienen defaults razonables en variables.tf; este archivo
+# es solo un ejemplo de override explícito.
+
+project_name = "banking-agent"
+environment  = "dev"
+aws_region   = "us-east-1"
+
+# Perfil dedicado del proyecto en ~/.aws/credentials (NO el perfil personal
+# "amplifyDev" u otro ya existente).
+aws_profile = "banking-agent-dev"
+
+tags = {
+  Owner = "devops"
+}
+
+# Inference profile de Amazon Bedrock elegido (Claude Sonnet 5, Anthropic) —
+# confirmado empíricamente contra la cuenta real (aws bedrock
+# list-foundation-models/list-inference-profiles) que esta familia de
+# modelos SOLO soporta invocación vía inference profile, no model ID
+# directo. Ver terraform/modules/secrets/README.md para el detalle completo
+# y el bloqueador de "model access" pendiente (AccessDeniedException real al
+# probar una invocación — requiere habilitar el acceso al modelo desde la
+# consola de Bedrock antes de que cualquier Lambda pueda invocarlo).
+# Ningún Lambda invoca Bedrock todavía (ver docs/STATUS.md, limitaciones).
+bedrock_model_id = "us.anthropic.claude-sonnet-5"
+
+# Placeholder — NUNCA poner un secreto real en un archivo versionado.
+# Si hace falta un secreto real, pasarlo por variable de entorno
+# TF_VAR_third_party_api_credentials o un tfvars fuera de git.
+third_party_api_credentials = {
+  placeholder = "replace-me"
+}
+
+# CORS del chat UI (fetch() desde el navegador contra POST /chat). Default
+# "*" es un SENTINEL: si se deja en ese valor, envs/dev/main.tf lo
+# reemplaza automáticamente por el dominio real de CloudFront del módulo
+# `frontend` (ver terraform/modules/frontend/README.md). Descomentar y
+# ajustar solo si hace falta un dominio custom distinto del de CloudFront:
+# cors_allow_origins = ["https://<dominio-custom>"]
+
+# module.analytics (DynamoDB Streams -> Lambda -> Kinesis Firehose -> S3)
+# queda DESHABILITADO por default -- bloqueador real confirmado en la cuenta
+# de este proyecto: SubscriptionRequiredException al crear/leer Kinesis
+# Firehose (servicio no habilitado/suscrito en esa cuenta). Ver docstring de
+# enable_analytics_pipeline en variables.tf y
+# terraform/modules/analytics/README.md. Poner en `true` en una cuenta
+# donde Firehose SÍ esté disponible para desplegar el pipeline completo:
+# enable_analytics_pipeline = true

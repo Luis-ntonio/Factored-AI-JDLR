@@ -1,0 +1,230 @@
+{
+  "Comment": "Chat orchestrator: Understand -> Decide -> Act (AUTO) -> Verify -> PostActionDecide (solo eligibility_check) -> respuesta. CLARIFY sigue respondiendo directo el reason/askField de policy-agent (no es una escalacion, es pedir un dato). ESCALATE (decision de policy-agent en pre_action), los resultados AUTO que Verify marca pending_confirmation, y los resultados de eligibility_check que PostActionDecide (policy-agent en stage post_action) marca ESCALATE (score borderline) pasan por escalation-agent para un resumen humano estructurado.",
+  "StartAt": "Understand",
+  "States": {
+    "Understand": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${conversation_agent_lambda_arn}",
+        "Payload": {
+          "body.$": "States.JsonToString($)",
+          "isBase64Encoded": false
+        }
+      },
+      "ResultSelector": {
+        "understand.$": "States.StringToJson($.Payload.body)"
+      },
+      "Catch": [{"ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "OrchestrationFailed"}],
+      "Next": "Decide"
+    },
+    "Decide": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${policy_agent_lambda_arn}",
+        "Payload.$": "$.understand"
+      },
+      "ResultPath": "$.decideResult",
+      "Catch": [{"ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "OrchestrationFailed"}],
+      "Next": "RouteByDecision"
+    },
+    "RouteByDecision": {
+      "Type": "Choice",
+      "Choices": [
+        {"Variable": "$.decideResult.Payload.decision", "StringEquals": "AUTO", "Next": "RouteAutoIntent"},
+        {"Variable": "$.decideResult.Payload.decision", "StringEquals": "CLARIFY", "Next": "RespondClarify"},
+        {"Variable": "$.decideResult.Payload.decision", "StringEquals": "ESCALATE", "Next": "EscalateFromPolicy"}
+      ],
+      "Default": "EscalateFromPolicy"
+    },
+    "RouteAutoIntent": {
+      "Type": "Choice",
+      "Choices": [
+        {"Variable": "$.understand.intent", "StringEquals": "product_info", "Next": "ActRetrieval"},
+        {"Variable": "$.understand.intent", "StringEquals": "faq", "Next": "ActRetrieval"},
+        {"Variable": "$.understand.intent", "StringEquals": "eligibility_check", "Next": "ActTransaction"}
+      ],
+      "Default": "RespondUnsupportedAuto"
+    },
+    "ActRetrieval": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${retrieval_agent_lambda_arn}",
+        "Payload": {
+          "body.$": "States.JsonToString($.understand)",
+          "isBase64Encoded": false
+        }
+      },
+      "ResultSelector": {"data.$": "States.StringToJson($.Payload.body)"},
+      "ResultPath": "$.actResult",
+      "Catch": [{"ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "OrchestrationFailed"}],
+      "Next": "Verify"
+    },
+    "ActTransaction": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${transaction_agent_lambda_arn}",
+        "Payload": {
+          "body.$": "States.JsonToString($.understand)",
+          "isBase64Encoded": false
+        }
+      },
+      "ResultSelector": {"data.$": "States.StringToJson($.Payload.body)"},
+      "ResultPath": "$.actResult",
+      "Catch": [{"ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "OrchestrationFailed"}],
+      "Next": "Verify"
+    },
+    "Verify": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${verification_agent_lambda_arn}",
+        "Payload": {
+          "intent.$": "$.understand.intent",
+          "result.$": "$.actResult.data"
+        }
+      },
+      "ResultPath": "$.verifyResult",
+      "Catch": [{"ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "OrchestrationFailed"}],
+      "Next": "RouteByVerification"
+    },
+    "RouteByVerification": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "And": [
+            {"Variable": "$.verifyResult.Payload.status", "StringEquals": "verified"},
+            {"Variable": "$.understand.intent", "StringEquals": "eligibility_check"}
+          ],
+          "Next": "PostActionDecide"
+        },
+        {"Variable": "$.verifyResult.Payload.status", "StringEquals": "verified", "Next": "RespondAuto"}
+      ],
+      "Default": "EscalateFromVerification"
+    },
+    "PostActionDecide": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${policy_agent_lambda_arn}",
+        "Payload": {
+          "stage": "post_action",
+          "caseId.$": "$.verifyResult.Payload.data.caseId",
+          "productType.$": "$.verifyResult.Payload.data.productType",
+          "eligibility_score.$": "$.verifyResult.Payload.data.eligibility_score",
+          "score_zone.$": "$.verifyResult.Payload.data.score_zone"
+        }
+      },
+      "ResultPath": "$.postActionResult",
+      "Catch": [{"ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "OrchestrationFailed"}],
+      "Next": "RouteByPostAction"
+    },
+    "RouteByPostAction": {
+      "Type": "Choice",
+      "Choices": [
+        {"Variable": "$.postActionResult.Payload.decision", "StringEquals": "ESCALATE", "Next": "EscalateFromPostAction"}
+      ],
+      "Default": "RespondAuto"
+    },
+    "RespondAuto": {
+      "Type": "Pass",
+      "Parameters": {
+        "caseId.$": "$.understand.context.caseId",
+        "language.$": "$.understand.language",
+        "intent.$": "$.understand.intent",
+        "status": "ok",
+        "result.$": "$.verifyResult.Payload.data"
+      },
+      "End": true
+    },
+    "RespondUnsupportedAuto": {
+      "Type": "Pass",
+      "Parameters": {
+        "caseId.$": "$.understand.context.caseId",
+        "language.$": "$.understand.language",
+        "intent.$": "$.understand.intent",
+        "status": "unavailable",
+        "reason": "AUTO autorizado por policy-agent para un intent sin accion conectada en el orquestador (no deberia ocurrir con las reglas actuales de policies.yaml)."
+      },
+      "End": true
+    },
+    "RespondClarify": {
+      "Type": "Pass",
+      "Parameters": {
+        "caseId.$": "$.understand.context.caseId",
+        "language.$": "$.understand.language",
+        "intent.$": "$.understand.intent",
+        "status": "clarify",
+        "policyDecision.$": "$.decideResult.Payload"
+      },
+      "End": true
+    },
+    "EscalateFromPolicy": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${escalation_agent_lambda_arn}",
+        "Payload": {
+          "origin": "policy_decision",
+          "understand.$": "$.understand",
+          "policyDecision.$": "$.decideResult.Payload"
+        }
+      },
+      "ResultPath": "$.escalationResult",
+      "Catch": [{"ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "OrchestrationFailed"}],
+      "Next": "RespondEscalate"
+    },
+    "EscalateFromVerification": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${escalation_agent_lambda_arn}",
+        "Payload": {
+          "origin": "verification_failed",
+          "understand.$": "$.understand",
+          "attemptedAction": {
+            "intent.$": "$.understand.intent",
+            "verification.$": "$.verifyResult.Payload"
+          }
+        }
+      },
+      "ResultPath": "$.escalationResult",
+      "Catch": [{"ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "OrchestrationFailed"}],
+      "Next": "RespondEscalate"
+    },
+    "EscalateFromPostAction": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${escalation_agent_lambda_arn}",
+        "Payload": {
+          "origin": "post_action_decision",
+          "understand.$": "$.understand",
+          "policyDecision.$": "$.postActionResult.Payload"
+        }
+      },
+      "ResultPath": "$.escalationResult",
+      "Catch": [{"ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "OrchestrationFailed"}],
+      "Next": "RespondEscalate"
+    },
+    "RespondEscalate": {
+      "Type": "Pass",
+      "Parameters": {
+        "caseId.$": "$.understand.context.caseId",
+        "language.$": "$.understand.language",
+        "intent.$": "$.understand.intent",
+        "status": "escalate",
+        "escalation.$": "$.escalationResult.Payload"
+      },
+      "End": true
+    },
+    "OrchestrationFailed": {
+      "Type": "Pass",
+      "Parameters": {"status": "unavailable", "reason": "orchestration_error"},
+      "End": true
+    }
+  }
+}

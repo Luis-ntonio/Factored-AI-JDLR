@@ -1,0 +1,476 @@
+locals {
+  name_prefix = "${var.project_name}-${var.environment}"
+
+  common_tags = merge(
+    {
+      Project     = var.project_name
+      Environment = var.environment
+      ManagedBy   = "terraform"
+      Module      = "agent"
+    },
+    var.tags
+  )
+
+  # Hash combinado de todo el código fuente que puede afectar el contenido de
+  # los 6 zips (los 6 servicios + su dependencia compartida packages/shared +
+  # policies.yaml, empaquetado dentro de policy-agent/transaction-agent/
+  # verification-agent). Recalcula el trigger del null_resource de build cada
+  # vez que cambia cualquiera de estos archivos -- fileset()/filesha1() son
+  # funciones de Terraform evaluadas en cada plan, sin necesidad de un paso
+  # externo.
+  source_dirs = [
+    "${var.repo_root}/services/conversation-agent/src",
+    "${var.repo_root}/services/policy-agent/src",
+    "${var.repo_root}/services/retrieval-agent/src",
+    "${var.repo_root}/services/transaction-agent/src",
+    "${var.repo_root}/services/verification-agent/src",
+    "${var.repo_root}/services/escalation-agent/src",
+    "${var.repo_root}/packages/shared/src",
+  ]
+
+  source_files = flatten([
+    for dir in local.source_dirs : [
+      for f in fileset(dir, "**") : "${dir}/${f}"
+    ]
+  ])
+
+  sources_hash  = sha1(join("", [for f in sort(local.source_files) : filesha1(f)]))
+  policies_hash = filemd5("${var.repo_root}/policies.yaml")
+}
+
+# --- Build: esbuild bundling de los 6 Lambdas (ver terraform/scripts/
+# package-lambdas.js para la justificación completa de por qué esbuild en
+# vez de zippear dist/+node_modules tal cual -- riesgo real de symlinks
+# rotos de npm workspaces en @banking-agent/shared). Corre en cada apply
+# donde cambie el código fuente relevante o policies.yaml.
+resource "null_resource" "build_lambdas" {
+  count = var.enable_lambda_build ? 1 : 0
+
+  triggers = {
+    sources_hash  = local.sources_hash
+    policies_hash = local.policies_hash
+  }
+
+  provisioner "local-exec" {
+    working_dir = var.repo_root
+    command     = "node terraform/scripts/package-lambdas.js"
+  }
+}
+
+data "archive_file" "conversation_agent" {
+  type        = "zip"
+  source_dir  = "${path.module}/build/conversation-agent"
+  output_path = "${path.module}/build/conversation-agent.zip"
+
+  depends_on = [null_resource.build_lambdas]
+}
+
+data "archive_file" "policy_agent" {
+  type        = "zip"
+  source_dir  = "${path.module}/build/policy-agent"
+  output_path = "${path.module}/build/policy-agent.zip"
+
+  depends_on = [null_resource.build_lambdas]
+}
+
+data "archive_file" "retrieval_agent" {
+  type        = "zip"
+  source_dir  = "${path.module}/build/retrieval-agent"
+  output_path = "${path.module}/build/retrieval-agent.zip"
+
+  depends_on = [null_resource.build_lambdas]
+}
+
+data "archive_file" "transaction_agent" {
+  type        = "zip"
+  source_dir  = "${path.module}/build/transaction-agent"
+  output_path = "${path.module}/build/transaction-agent.zip"
+
+  depends_on = [null_resource.build_lambdas]
+}
+
+data "archive_file" "verification_agent" {
+  type        = "zip"
+  source_dir  = "${path.module}/build/verification-agent"
+  output_path = "${path.module}/build/verification-agent.zip"
+
+  depends_on = [null_resource.build_lambdas]
+}
+
+data "archive_file" "escalation_agent" {
+  type        = "zip"
+  source_dir  = "${path.module}/build/escalation-agent"
+  output_path = "${path.module}/build/escalation-agent.zip"
+
+  depends_on = [null_resource.build_lambdas]
+}
+
+# --- IAM: trust policy común de Lambda ---
+data "aws_iam_policy_document" "lambda_assume_role" {
+  statement {
+    effect  = "Allow"
+    actions = ["sts:AssumeRole"]
+
+    principals {
+      type        = "Service"
+      identifiers = ["lambda.amazonaws.com"]
+    }
+  }
+}
+
+# =====================================================================
+# conversation-agent -- capa Understand.
+# IAM de mínimo privilegio (gap 3, Tarea 3 del checkpoint "AWS real"):
+# SOLO DynamoDB Get/Put/Query sobre case_store. Deliberadamente SIN
+# lambda:InvokeFunction sobre ningún recurso -- no necesita invocar otros
+# Lambdas, y esa ausencia es justamente lo que garantiza que no pueda
+# saltearse la Step Function e invocar retrieval-agent/transaction-agent
+# directamente.
+# =====================================================================
+resource "aws_iam_role" "conversation_agent" {
+  name               = "${local.name_prefix}-conversation-agent-role"
+  assume_role_policy = data.aws_iam_policy_document.lambda_assume_role.json
+  tags               = local.common_tags
+}
+
+resource "aws_iam_role_policy_attachment" "conversation_agent_basic_logs" {
+  role       = aws_iam_role.conversation_agent.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+resource "aws_iam_role_policy" "conversation_agent_dynamodb" {
+  name = "${local.name_prefix}-conversation-agent-dynamodb"
+  role = aws_iam_role.conversation_agent.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "dynamodb:GetItem",
+          "dynamodb:PutItem",
+          "dynamodb:Query",
+        ]
+        Resource = [
+          var.case_store_table_arn,
+          "${var.case_store_table_arn}/index/*",
+        ]
+      }
+    ]
+  })
+}
+
+resource "aws_cloudwatch_log_group" "conversation_agent" {
+  name              = "/aws/lambda/${local.name_prefix}-conversation-agent"
+  retention_in_days = var.log_retention_days
+  tags              = local.common_tags
+}
+
+resource "aws_lambda_function" "conversation_agent" {
+  function_name = "${local.name_prefix}-conversation-agent"
+  role          = aws_iam_role.conversation_agent.arn
+  handler       = "index.handler"
+  runtime       = "nodejs20.x"
+  timeout       = var.lambda_timeout
+  memory_size   = var.lambda_memory_size
+
+  filename         = data.archive_file.conversation_agent.output_path
+  source_code_hash = data.archive_file.conversation_agent.output_base64sha256
+
+  environment {
+    variables = {
+      CASE_STORE_TABLE_NAME = var.case_store_table_name
+    }
+  }
+
+  tags = local.common_tags
+
+  depends_on = [
+    aws_cloudwatch_log_group.conversation_agent,
+    aws_iam_role_policy_attachment.conversation_agent_basic_logs,
+    aws_iam_role_policy.conversation_agent_dynamodb,
+  ]
+}
+
+# =====================================================================
+# policy-agent -- capa Decide.
+# IAM de mínimo privilegio: SOLO logging (AWSLambdaBasicExecutionRole).
+# Deliberadamente SIN DynamoDB, SIN lambda:InvokeFunction sobre ningún
+# recurso -- evalúa policies.yaml embebido en el propio paquete, no toca
+# ningún dato ni invoca a nadie.
+# =====================================================================
+resource "aws_iam_role" "policy_agent" {
+  name               = "${local.name_prefix}-policy-agent-role"
+  assume_role_policy = data.aws_iam_policy_document.lambda_assume_role.json
+  tags               = local.common_tags
+}
+
+resource "aws_iam_role_policy_attachment" "policy_agent_basic_logs" {
+  role       = aws_iam_role.policy_agent.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+resource "aws_cloudwatch_log_group" "policy_agent" {
+  name              = "/aws/lambda/${local.name_prefix}-policy-agent"
+  retention_in_days = var.log_retention_days
+  tags              = local.common_tags
+}
+
+resource "aws_lambda_function" "policy_agent" {
+  function_name = "${local.name_prefix}-policy-agent"
+  role          = aws_iam_role.policy_agent.arn
+  handler       = "index.handler"
+  runtime       = "nodejs20.x"
+  timeout       = var.lambda_timeout
+  memory_size   = var.lambda_memory_size
+
+  filename         = data.archive_file.policy_agent.output_path
+  source_code_hash = data.archive_file.policy_agent.output_base64sha256
+
+  environment {
+    variables = {
+      POLICY_FILE_PATH = "/var/task/policies.yaml"
+    }
+  }
+
+  tags = local.common_tags
+
+  depends_on = [
+    aws_cloudwatch_log_group.policy_agent,
+    aws_iam_role_policy_attachment.policy_agent_basic_logs,
+  ]
+}
+
+# =====================================================================
+# retrieval-agent -- capa Act (informativa).
+# IAM de mínimo privilegio: SOLO lectura (GetItem, Scan) sobre la tabla de
+# catálogo. Sin permisos de escritura, sin lambda:InvokeFunction.
+# =====================================================================
+resource "aws_iam_role" "retrieval_agent" {
+  name               = "${local.name_prefix}-retrieval-agent-role"
+  assume_role_policy = data.aws_iam_policy_document.lambda_assume_role.json
+  tags               = local.common_tags
+}
+
+resource "aws_iam_role_policy_attachment" "retrieval_agent_basic_logs" {
+  role       = aws_iam_role.retrieval_agent.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+resource "aws_iam_role_policy" "retrieval_agent_dynamodb" {
+  name = "${local.name_prefix}-retrieval-agent-dynamodb"
+  role = aws_iam_role.retrieval_agent.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "dynamodb:GetItem",
+          "dynamodb:Scan",
+        ]
+        Resource = [var.catalog_table_arn]
+      }
+    ]
+  })
+}
+
+resource "aws_cloudwatch_log_group" "retrieval_agent" {
+  name              = "/aws/lambda/${local.name_prefix}-retrieval-agent"
+  retention_in_days = var.log_retention_days
+  tags              = local.common_tags
+}
+
+resource "aws_lambda_function" "retrieval_agent" {
+  function_name = "${local.name_prefix}-retrieval-agent"
+  role          = aws_iam_role.retrieval_agent.arn
+  handler       = "index.handler"
+  runtime       = "nodejs20.x"
+  timeout       = var.lambda_timeout
+  memory_size   = var.lambda_memory_size
+
+  filename         = data.archive_file.retrieval_agent.output_path
+  source_code_hash = data.archive_file.retrieval_agent.output_base64sha256
+
+  environment {
+    variables = {
+      CATALOG_BACKEND    = "dynamodb"
+      CATALOG_TABLE_NAME = var.catalog_table_name
+    }
+  }
+
+  tags = local.common_tags
+
+  depends_on = [
+    aws_cloudwatch_log_group.retrieval_agent,
+    aws_iam_role_policy_attachment.retrieval_agent_basic_logs,
+    aws_iam_role_policy.retrieval_agent_dynamodb,
+  ]
+}
+
+# =====================================================================
+# transaction-agent -- capa Act (transaccional/elegibilidad).
+# IAM de mínimo privilegio: SOLO GetItem/PutItem sobre case_store (idempotency
+# key + persistencia del resultado de elegibilidad). Sin lambda:InvokeFunction.
+# =====================================================================
+resource "aws_iam_role" "transaction_agent" {
+  name               = "${local.name_prefix}-transaction-agent-role"
+  assume_role_policy = data.aws_iam_policy_document.lambda_assume_role.json
+  tags               = local.common_tags
+}
+
+resource "aws_iam_role_policy_attachment" "transaction_agent_basic_logs" {
+  role       = aws_iam_role.transaction_agent.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+resource "aws_iam_role_policy" "transaction_agent_dynamodb" {
+  name = "${local.name_prefix}-transaction-agent-dynamodb"
+  role = aws_iam_role.transaction_agent.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "dynamodb:GetItem",
+          "dynamodb:PutItem",
+        ]
+        Resource = [var.case_store_table_arn]
+      }
+    ]
+  })
+}
+
+resource "aws_cloudwatch_log_group" "transaction_agent" {
+  name              = "/aws/lambda/${local.name_prefix}-transaction-agent"
+  retention_in_days = var.log_retention_days
+  tags              = local.common_tags
+}
+
+resource "aws_lambda_function" "transaction_agent" {
+  function_name = "${local.name_prefix}-transaction-agent"
+  role          = aws_iam_role.transaction_agent.arn
+  handler       = "index.handler"
+  runtime       = "nodejs20.x"
+  timeout       = var.lambda_timeout
+  memory_size   = var.lambda_memory_size
+
+  filename         = data.archive_file.transaction_agent.output_path
+  source_code_hash = data.archive_file.transaction_agent.output_base64sha256
+
+  environment {
+    variables = {
+      CASE_STORE_TABLE_NAME = var.case_store_table_name
+      POLICY_FILE_PATH      = "/var/task/policies.yaml"
+    }
+  }
+
+  tags = local.common_tags
+
+  depends_on = [
+    aws_cloudwatch_log_group.transaction_agent,
+    aws_iam_role_policy_attachment.transaction_agent_basic_logs,
+    aws_iam_role_policy.transaction_agent_dynamodb,
+  ]
+}
+
+# =====================================================================
+# verification-agent -- capa Verify.
+# IAM de mínimo privilegio: SOLO logging (AWSLambdaBasicExecutionRole).
+# Task-a-Task interno (nunca detrás de API Gateway), mismo criterio que
+# policy-agent: SIN DynamoDB, SIN lambda:InvokeFunction sobre ningún
+# recurso -- hace una segunda verificación INDEPENDIENTE del resultado ya
+# calculado por retrieval-agent/transaction-agent, releyendo
+# policies.yaml embebido en su propio paquete, sin tocar ningún dato ni
+# invocar a nadie.
+# =====================================================================
+resource "aws_iam_role" "verification_agent" {
+  name               = "${local.name_prefix}-verification-agent-role"
+  assume_role_policy = data.aws_iam_policy_document.lambda_assume_role.json
+  tags               = local.common_tags
+}
+
+resource "aws_iam_role_policy_attachment" "verification_agent_basic_logs" {
+  role       = aws_iam_role.verification_agent.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+resource "aws_cloudwatch_log_group" "verification_agent" {
+  name              = "/aws/lambda/${local.name_prefix}-verification-agent"
+  retention_in_days = var.log_retention_days
+  tags              = local.common_tags
+}
+
+resource "aws_lambda_function" "verification_agent" {
+  function_name = "${local.name_prefix}-verification-agent"
+  role          = aws_iam_role.verification_agent.arn
+  handler       = "index.handler"
+  runtime       = "nodejs20.x"
+  timeout       = var.lambda_timeout
+  memory_size   = var.lambda_memory_size
+
+  filename         = data.archive_file.verification_agent.output_path
+  source_code_hash = data.archive_file.verification_agent.output_base64sha256
+
+  environment {
+    variables = {
+      POLICY_FILE_PATH = "/var/task/policies.yaml"
+    }
+  }
+
+  tags = local.common_tags
+
+  depends_on = [
+    aws_cloudwatch_log_group.verification_agent,
+    aws_iam_role_policy_attachment.verification_agent_basic_logs,
+  ]
+}
+
+# =====================================================================
+# escalation-agent -- capa Escalate.
+# IAM de mínimo privilegio: SOLO logging (AWSLambdaBasicExecutionRole).
+# Task-a-Task interno (nunca detrás de API Gateway), mismo criterio que
+# policy-agent/verification-agent: SIN DynamoDB, SIN lambda:InvokeFunction.
+# Pura transformación de datos ya recibidos en el evento (understand +
+# policyDecision/verification) -- no lee policies.yaml ni ningún otro
+# archivo de configuración en runtime, por eso no tiene bloque `environment`.
+# =====================================================================
+resource "aws_iam_role" "escalation_agent" {
+  name               = "${local.name_prefix}-escalation-agent-role"
+  assume_role_policy = data.aws_iam_policy_document.lambda_assume_role.json
+  tags               = local.common_tags
+}
+
+resource "aws_iam_role_policy_attachment" "escalation_agent_basic_logs" {
+  role       = aws_iam_role.escalation_agent.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+resource "aws_cloudwatch_log_group" "escalation_agent" {
+  name              = "/aws/lambda/${local.name_prefix}-escalation-agent"
+  retention_in_days = var.log_retention_days
+  tags              = local.common_tags
+}
+
+resource "aws_lambda_function" "escalation_agent" {
+  function_name = "${local.name_prefix}-escalation-agent"
+  role          = aws_iam_role.escalation_agent.arn
+  handler       = "index.handler"
+  runtime       = "nodejs20.x"
+  timeout       = var.lambda_timeout
+  memory_size   = var.lambda_memory_size
+
+  filename         = data.archive_file.escalation_agent.output_path
+  source_code_hash = data.archive_file.escalation_agent.output_base64sha256
+
+  tags = local.common_tags
+
+  depends_on = [
+    aws_cloudwatch_log_group.escalation_agent,
+    aws_iam_role_policy_attachment.escalation_agent_basic_logs,
+  ]
+}
