@@ -1,0 +1,20 @@
+{
+  "name": "@banking-agent/escalation-agent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Capa Escalate del pipeline: última pieza antes de que un humano reciba (o no) información sobre un caso que no pudo resolverse 100% automáticamente. Recibe un ESCALATE de policy-agent (pre_action, antes de cualquier acción) o un pending_confirmation de verification-agent (después de intentar retrieval-agent/transaction-agent), y produce un EscalationSummary estructurado y legible por un humano en segundos -- nunca el transcript crudo ni un JSON sin resumir. Nunca expone entities.document_id crudo. Handler Task-a-Task de la Step Function (JSON plano), sin acceso a DynamoDB ni a ningún otro recurso AWS.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@banking-agent/shared": "0.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.16.11",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.4"
+  }
+}
