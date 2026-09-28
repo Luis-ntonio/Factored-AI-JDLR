@@ -712,3 +712,25 @@ real conectado" — acá el resumen de decisiones.
 - **Costo/latencia aumentan** con cada turno (1-2 llamadas a Bedrock) — no
   medido contra tráfico real, nueva limitación explícita de "Capacity
   limits" para el cierre.
+
+## Decisiones y limitaciones registradas — Fase 3 (Pivot: transaction-dispute intake)
+
+Pivot de prioridad basado en el EDA real del dataset del hackathon (`hacka-info/EDA_LATAM_Bank_resumen.md`, contexto local no versionado): el flujo con mejor evidencia de negocio es **transaction-dispute intake** (disputas de cargo no reconocido/cobro indebido), no `credit-product info & eligibility` (que NO se retira, sigue intacto, solo deja de ser el foco). Detalle técnico completo en `docs/STATUS.md`, sección "Fase 3 — Pivot de prioridad" — acá el resumen de decisiones para el historial.
+
+- **Decisión de arquitectura (idea del usuario, validada por el coordinador):** se extendió el pipeline Understand→Decide existente (mismo `Intent`/`Entities` de `packages/shared`, mismo `policies.yaml`) en vez de crear un router/servicios nuevos duplicados. El único componente genuinamente nuevo (el "Act" de disputa) queda para la fase siguiente.
+- **Datos:** mock chico (4 clientes, 6 productos, 24 transacciones) con columnas calcadas del data dictionary real del hackathon (`hacka-info/LATAM_Bank_Complete_Data_Dictionary.pdf`, páginas 4/5/8) — nunca se tocó la página 2 de ese PDF (credenciales AWS reales del hackathon). `complaints` deliberadamente no se usa (el EDA mostró que no sirve como fuente de verdad).
+- **Contrato:** `Intent` +1 (`dispute_unrecognized_charge`), `Entities` +4 (`disputed_amount`, `merchant`, `transaction_date`, `dispute_reason`). La validación "al menos uno de los tres" es OR y no cabe en `REQUIRED_ENTITIES_BY_INTENT` (semántica AND) — quedó como regla adicional en policy-agent, mismo patrón que `document_type` en eligibility.
+- **Umbral de riesgo separado:** `dispute_high_risk_amount_threshold: 15000`, distinto de `high_risk_amount_threshold: 50000` de eligibility — un cargo ya disputado es una señal de alarma distinta a un préstamo solicitado.
+- **`is_repeat_complainer` descartado por esta fase:** no hay dato de historial cross-case disponible hoy (`UnderstandContext.historyTurns` es solo del case actual) — requeriría una query nueva de infra, fuera de scope.
+- **QA en dos rondas:** 275 tests (ronda 1) → 279 tests (ronda 2, tras cerrar un gap real de cobertura de test en las reglas nuevas de policy-agent que encontró el reviewer). Sin regresión en el flujo viejo.
+- **Incidente de concurrencia entre agentes:** un `git stash`/`reset` repo-wide durante el trabajo en paralelo de dos agentes, resuelto por ambos de forma independiente y verificado por el reviewer sin pérdida de datos. Stash dejado sin dropear como red de seguridad hasta confirmar el commit de esta fase.
+
+## Pendiente de decidir (actualizado — Fase 3, pivot transaction-dispute)
+
+- **Act de disputa** (Lambda nuevo que use `TransactionRepository` para identificar la transacción real, confirmar con el cliente, bloquear tarjeta, abrir disputa) — no existe todavía, es la fase siguiente.
+- **Verify/Escalate extendidos para disputa** — sin tocar en esta fase, a extender cuando exista el Act.
+- **Terraform/ASL para disputa** — sin ningún recurso nuevo, el flujo no está conectado a AWS real todavía.
+- **Confirmación del contrato `post_action` de disputa** (`DisputeVerificationResult`, umbral de `fraud_score`, correlación) — queda `PROPOSAL_NOT_CONFIRMED` en `policies.yaml`, a resolver junto con quien construya el Act.
+- **`is_repeat_complainer`** — sin viabilidad en esta fase, requiere query nueva de historial por `customerId`.
+- Los pendientes ya existentes de fases anteriores (política de retención de `ttl`, `AdministratorAccess` del usuario del proyecto, hardening de Security) siguen sin resolver, sin relación con este pivot.
+- Limpieza del `git stash` dejado como red de seguridad durante el incidente de concurrencia — corresponde al usuario confirmarlo y limpiarlo después de revisar los commits de esta fase.
