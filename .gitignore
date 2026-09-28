@@ -25,6 +25,22 @@ dist/
 .env.local
 .env.*.local
 
+# ml/: pipeline de entrenamiento/evaluación offline (Python, fuera de los
+# workspaces npm). Nunca versionar el dataset real descargado (grande,
+# datos del hackathon con términos de uso propios) ni el venv/artefactos
+# binarios de modelos entrenados -- solo el código (ml/scripts, ml/src) y
+# reportes en texto (ml/REPORT.md) se versionan. `!.gitkeep` mantiene la
+# estructura de carpetas vacías versionada.
+/ml/data/*
+!/ml/data/.gitkeep
+/ml/venv/
+/ml/.venv/
+/ml/models/*.pkl
+/ml/models/*.onnx
+/ml/.env
+__pycache__/
+*.pyc
+
 # Logs
 npm-debug.log*
 *.log
