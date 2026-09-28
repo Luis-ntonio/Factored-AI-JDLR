@@ -5,6 +5,7 @@ import { sendChatMessage } from "../api";
 import { useAuth } from "../auth/AuthContext";
 import type { LoginSession } from "../auth/api";
 import { getOrCreateDeviceSessionId } from "../utils/cookies";
+import { useChatLaunch } from "../chat/ChatLaunchContext";
 import { MessageBubble } from "./MessageBubble";
 import { LanguageBadge } from "./LanguageBadge";
 
@@ -58,6 +59,7 @@ const INACTIVITY_NOTICE: Record<LanguageCode, string> = {
  */
 export function ChatPanel() {
   const { session } = useAuth();
+  const { request: launchRequest, clearRequest: clearLaunchRequest } = useChatLaunch();
   const [caseId, setCaseId] = useState<string>(() => crypto.randomUUID());
   const [chatOpenedAt, setChatOpenedAt] = useState<string>(() => new Date().toISOString());
   const deviceSessionIdRef = useRef<string>(getOrCreateDeviceSessionId());
@@ -99,6 +101,20 @@ export function ChatPanel() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Un botón "Lo quiero" de ProductShowcase.tsx pidió abrir el chat con un
+  // mensaje ya definido (ver chat/ChatLaunchContext.tsx) -- se dispara tanto
+  // en el primer montaje de este panel (primer click, ChatWidget recién lo
+  // montó) como en cualquier click posterior mientras el panel ya está
+  // montado (el usuario elige OTRO producto con el chat abierto). Se limpia
+  // el pedido enseguida para no reenviarlo en un re-render no relacionado.
+  useEffect(() => {
+    if (launchRequest) {
+      void sendMessage(launchRequest.message);
+      clearLaunchRequest();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [launchRequest]);
 
   // `sessionTokenOverride`: usado exclusivamente por `handleLoginSuccess`
   // (reenvío automático post-login) -- ese callback recibe la sesión recién
