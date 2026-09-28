@@ -27,3 +27,13 @@ output "product_catalog_table_arn" {
   description = "ARN de la tabla DynamoDB del catálogo de productos de crédito + FAQs."
   value       = aws_dynamodb_table.product_catalog.arn
 }
+
+output "otp_codes_table_name" {
+  description = "Nombre de la tabla DynamoDB de códigos OTP (login alternativo dentro del chat, services/auth-agent)."
+  value       = aws_dynamodb_table.otp_codes.name
+}
+
+output "otp_codes_table_arn" {
+  description = "ARN de la tabla DynamoDB de códigos OTP -- para la IAM policy de auth-agent."
+  value       = aws_dynamodb_table.otp_codes.arn
+}

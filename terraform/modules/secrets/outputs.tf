@@ -22,3 +22,13 @@ output "session_token_secret_parameter_arn" {
   description = "ARN del parámetro SSM del secreto de sesión -- para IAM policies (ssm:GetParameter + kms:Decrypt) de auth-agent/conversation-agent."
   value       = aws_ssm_parameter.session_token_secret.arn
 }
+
+output "resend_api_key_parameter_name" {
+  description = "Nombre del parámetro SSM (SecureString) con la API key de Resend."
+  value       = aws_ssm_parameter.resend_api_key.name
+}
+
+output "resend_api_key_parameter_arn" {
+  description = "ARN del parámetro SSM de la API key de Resend -- para la IAM policy (ssm:GetParameter + kms:Decrypt) de auth-agent."
+  value       = aws_ssm_parameter.resend_api_key.arn
+}

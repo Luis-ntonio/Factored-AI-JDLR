@@ -58,6 +58,29 @@ resource "aws_ssm_parameter" "session_token_secret" {
   tags = local.common_tags
 }
 
+# --- API key de Resend (login por código OTP, services/auth-agent/src/otp) ---
+#
+# A diferencia de `session_token_secret` (generado por Terraform), esta es
+# una credencial de un servicio de terceros que YA existe fuera de este
+# proyecto -- Terraform solo crea el parámetro con un placeholder; el valor
+# real lo carga el usuario después vía `aws ssm put-parameter --overwrite`
+# (nunca pasa por el chat/logs de esta sesión, ni por un archivo versionado).
+# `lifecycle.ignore_changes` evita que un `terraform apply` futuro pise ese
+# valor real de vuelta al placeholder -- mismo problema que resolvería
+# "importar" el recurso, pero sin el paso manual de `terraform import`.
+resource "aws_ssm_parameter" "resend_api_key" {
+  name        = "/${local.name_prefix}/auth/resend_api_key"
+  description = "API key de Resend (servicio de terceros) para el envío de códigos OTP por email. Placeholder en Terraform -- el valor real se carga fuera de banda vía AWS CLI, nunca en git."
+  type        = "SecureString"
+  value       = var.resend_api_key
+
+  lifecycle {
+    ignore_changes = [value]
+  }
+
+  tags = local.common_tags
+}
+
 # --- Secrets Manager: valores sensibles ---
 #
 # Placeholder genérico para credenciales de terceros que el proyecto pueda

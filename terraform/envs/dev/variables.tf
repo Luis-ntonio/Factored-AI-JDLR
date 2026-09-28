@@ -84,6 +84,19 @@ variable "third_party_api_credentials" {
   sensitive   = true
 }
 
+variable "resend_from_email" {
+  description = <<-EOT
+    Dirección FROM verificada en la cuenta de Resend del usuario, usada para
+    enviar los códigos OTP del login alternativo dentro del chat (`services/
+    auth-agent/src/otp`). NO es un secreto (a diferencia de la API key de
+    Resend, que vive en SSM SecureString vía `module.secrets` y se carga
+    fuera de banda por CLI) -- solo requiere que el dominio esté verificado
+    del lado de Resend, algo externo a este repo.
+  EOT
+  type        = string
+  default     = "no-reply@phonance.com"
+}
+
 variable "cors_allow_origins" {
   description = <<-EOT
     Ver terraform/modules/edge/variables.tf y README.md. Origins permitidos

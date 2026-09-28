@@ -74,6 +74,34 @@ resource "aws_dynamodb_table" "case_store" {
   tags = local.common_tags
 }
 
+# Códigos OTP del login alternativo dentro del chat (documento + código por
+# email, ver `services/auth-agent/src/otp`). Un item por documento -- un
+# pedido nuevo pisa (upsert) cualquier código anterior del mismo documento,
+# nunca acumula historial. `expiresAt` (epoch SEGUNDOS, 10 min desde el
+# pedido) es el atributo TTL -- DynamoDB borra el item solo, sin necesidad de
+# un job de limpieza aparte. Sin GSI: el único acceso es por `pk` (document_id).
+resource "aws_dynamodb_table" "otp_codes" {
+  name         = "${local.name_prefix}-otp-codes"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "pk"
+
+  attribute {
+    name = "pk"
+    type = "S"
+  }
+
+  ttl {
+    attribute_name = "expiresAt"
+    enabled        = true
+  }
+
+  point_in_time_recovery {
+    enabled = var.point_in_time_recovery_enabled
+  }
+
+  tags = local.common_tags
+}
+
 # Catálogo de productos de crédito + FAQs (gap 1 del checkpoint "AWS real",
 # Tarea 1 de devops). Contenido de REFERENCIA ESTÁTICO (tasas, requisitos,
 # FAQs redactadas a mano), no de sesión -- a diferencia de `case_store` NO

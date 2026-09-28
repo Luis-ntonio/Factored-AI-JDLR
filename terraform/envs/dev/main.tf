@@ -103,6 +103,16 @@ module "agent" {
   # patron que bedrock_*_ssm_parameter_name de arriba.
   session_token_secret_parameter_name = module.secrets.session_token_secret_parameter_name
   session_token_secret_parameter_arn  = module.secrets.session_token_secret_parameter_arn
+
+  # Login por codigo OTP dentro del chat (services/auth-agent/src/otp) --
+  # mismo patron: la API key de Resend vive en module.secrets (SSM
+  # SecureString, placeholder hasta que el usuario la cargue por CLI), la
+  # tabla de codigos vive en module.data.
+  resend_api_key_parameter_name = module.secrets.resend_api_key_parameter_name
+  resend_api_key_parameter_arn  = module.secrets.resend_api_key_parameter_arn
+  resend_from_email             = var.resend_from_email
+  otp_table_name                = module.data.otp_codes_table_name
+  otp_table_arn                 = module.data.otp_codes_table_arn
 }
 
 module "orchestration" {

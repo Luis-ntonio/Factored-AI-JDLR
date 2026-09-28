@@ -121,3 +121,22 @@ resource "aws_apigatewayv2_route" "auth" {
   route_key = var.auth_route_key
   target    = "integrations/${aws_apigatewayv2_integration.auth[0].id}"
 }
+
+# Rutas del login por código OTP (documento + código por email, dentro del
+# chat) -- reusan la MISMA integración de arriba (mismo Lambda auth-agent,
+# que despacha por `event.rawPath`), no hace falta una integración nueva.
+resource "aws_apigatewayv2_route" "otp_request" {
+  count = var.attach_auth_route ? 1 : 0
+
+  api_id    = aws_apigatewayv2_api.this.id
+  route_key = var.otp_request_route_key
+  target    = "integrations/${aws_apigatewayv2_integration.auth[0].id}"
+}
+
+resource "aws_apigatewayv2_route" "otp_verify" {
+  count = var.attach_auth_route ? 1 : 0
+
+  api_id    = aws_apigatewayv2_api.this.id
+  route_key = var.otp_verify_route_key
+  target    = "integrations/${aws_apigatewayv2_integration.auth[0].id}"
+}

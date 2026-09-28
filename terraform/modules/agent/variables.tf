@@ -123,3 +123,28 @@ variable "session_token_secret_parameter_arn" {
   description = "ARN del mismo parámetro (module.secrets.session_token_secret_parameter_arn) -- scoping exacto de la IAM policy ssm:GetParameter de auth-agent/conversation-agent."
   type        = string
 }
+
+variable "resend_api_key_parameter_name" {
+  description = "Nombre del parámetro SSM SecureString (module.secrets.resend_api_key_parameter_name) que auth-agent lee para enviar códigos OTP por email vía Resend."
+  type        = string
+}
+
+variable "resend_api_key_parameter_arn" {
+  description = "ARN del mismo parámetro (module.secrets.resend_api_key_parameter_arn) -- scoping exacto de la IAM policy ssm:GetParameter de auth-agent."
+  type        = string
+}
+
+variable "resend_from_email" {
+  description = "Dirección FROM verificada en la cuenta de Resend del usuario (ej. no-reply@phonance.com) -- config NO sensible, se pasa como env var plana al Lambda de auth-agent, no vía SSM."
+  type        = string
+}
+
+variable "otp_table_name" {
+  description = "Nombre de la tabla DynamoDB de códigos OTP (module.data.otp_codes_table_name)."
+  type        = string
+}
+
+variable "otp_table_arn" {
+  description = "ARN de la misma tabla (module.data.otp_codes_table_arn) -- scoping exacto de la IAM policy dynamodb:* de auth-agent."
+  type        = string
+}

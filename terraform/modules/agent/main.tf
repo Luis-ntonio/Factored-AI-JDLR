@@ -700,13 +700,33 @@ resource "aws_iam_role_policy" "auth_agent_ssm" {
         Sid      = "ReadSessionTokenSecret"
         Effect   = "Allow"
         Action   = ["ssm:GetParameter"]
-        Resource = [var.session_token_secret_parameter_arn]
+        Resource = [var.session_token_secret_parameter_arn, var.resend_api_key_parameter_arn]
       },
       {
         Sid      = "DecryptSessionTokenSecret"
         Effect   = "Allow"
         Action   = ["kms:Decrypt"]
         Resource = [data.aws_kms_alias.ssm.target_key_arn]
+      }
+    ]
+  })
+}
+
+# Login por código OTP dentro del chat (services/auth-agent/src/otp) --
+# permisos de mínimo privilegio scoped al ARN exacto de la tabla nueva, sin
+# batch/scan (el acceso siempre es por pk = document_id, ver otp/store.ts).
+resource "aws_iam_role_policy" "auth_agent_otp_table" {
+  name = "${local.name_prefix}-auth-agent-otp-table"
+  role = aws_iam_role.auth_agent.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid      = "OtpCodesReadWrite"
+        Effect   = "Allow"
+        Action   = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:DeleteItem"]
+        Resource = [var.otp_table_arn]
       }
     ]
   })
@@ -732,6 +752,9 @@ resource "aws_lambda_function" "auth_agent" {
   environment {
     variables = {
       SESSION_TOKEN_SECRET_PARAM_NAME = var.session_token_secret_parameter_name
+      RESEND_API_KEY_PARAM_NAME       = var.resend_api_key_parameter_name
+      RESEND_FROM_EMAIL               = var.resend_from_email
+      OTP_TABLE_NAME                  = var.otp_table_name
     }
   }
 
@@ -741,5 +764,6 @@ resource "aws_lambda_function" "auth_agent" {
     aws_cloudwatch_log_group.auth_agent,
     aws_iam_role_policy_attachment.auth_agent_basic_logs,
     aws_iam_role_policy.auth_agent_ssm,
+    aws_iam_role_policy.auth_agent_otp_table,
   ]
 }

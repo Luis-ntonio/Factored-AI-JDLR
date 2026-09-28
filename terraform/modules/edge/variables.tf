@@ -75,6 +75,18 @@ variable "auth_route_key" {
   default     = "POST /auth/login"
 }
 
+variable "otp_request_route_key" {
+  description = "Route key HTTP para pedir un código OTP (login alternativo dentro del chat), usado solo si attach_auth_route = true. Misma integración/Lambda que auth_route_key -- auth-agent despacha por rawPath."
+  type        = string
+  default     = "POST /auth/otp/request"
+}
+
+variable "otp_verify_route_key" {
+  description = "Route key HTTP para verificar un código OTP, usado solo si attach_auth_route = true. Misma integración/Lambda que auth_route_key."
+  type        = string
+  default     = "POST /auth/otp/verify"
+}
+
 variable "cors_allow_origins" {
   description = <<-EOT
     Lista de origins permitidos en el `cors_configuration` nativo del HTTP

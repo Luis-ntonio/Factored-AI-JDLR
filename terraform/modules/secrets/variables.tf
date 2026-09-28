@@ -38,6 +38,25 @@ variable "bedrock_region" {
   default     = "us-east-1"
 }
 
+variable "resend_api_key" {
+  description = <<-EOT
+    Placeholder para la API key de Resend (servicio de terceros usado para
+    enviar códigos OTP por email, `services/auth-agent/src/otp/
+    resend-client.ts`). El valor real NUNCA se pasa por `-var`/tfvars de
+    este módulo -- se carga después vía `aws ssm put-parameter --overwrite`
+    directo sobre el parámetro SSM que este módulo crea (ver
+    `aws_ssm_parameter.resend_api_key`, que tiene `lifecycle.ignore_changes`
+    para no pisar ese valor real en un `apply` futuro). Este default es
+    intencionalmente obvio ("replace-me...") para que un `terraform apply`
+    inicial sin la key real todavía funcione (el Lambda de auth-agent
+    fallará solo si de verdad intenta enviar un OTP antes de que el usuario
+    cargue la key real).
+  EOT
+  type        = string
+  default     = "replace-me-via-aws-cli"
+  sensitive   = true
+}
+
 variable "third_party_api_credentials" {
   description = <<-EOT
     Placeholder para credenciales de terceros que el proyecto pueda necesitar
