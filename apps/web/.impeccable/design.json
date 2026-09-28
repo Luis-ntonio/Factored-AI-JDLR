@@ -37,16 +37,16 @@
       "terracotta": {
         "role": "secondary",
         "displayName": "Terracota",
-        "canonical": "oklch(58% 0.16 40)",
+        "canonical": "oklch(54% 0.13 28)",
         "tonalRamp": [
-          "oklch(20% 0.08 40)",
-          "oklch(35% 0.13 40)",
-          "oklch(50% 0.16 40)",
-          "oklch(58% 0.16 40)",
-          "oklch(68% 0.14 40)",
-          "oklch(78% 0.10 40)",
-          "oklch(88% 0.06 40)",
-          "oklch(96% 0.02 40)"
+          "oklch(20% 0.07 28)",
+          "oklch(32% 0.11 28)",
+          "oklch(45% 0.13 28)",
+          "oklch(54% 0.13 28)",
+          "oklch(66% 0.11 28)",
+          "oklch(77% 0.08 28)",
+          "oklch(88% 0.05 28)",
+          "oklch(96% 0.02 28)"
         ]
       },
       "surface": {
@@ -137,7 +137,7 @@
       "refersTo": "button-primary",
       "description": "Botón de acción principal (enviar mensaje, ingresar en el login) — único color de acción del sistema.",
       "html": "<button class=\"ds-btn-primary\">Enviar</button>",
-      "css": ".ds-btn-primary { background: oklch(58% 0.16 40); color: oklch(100% 0 0); border: none; border-radius: 999px; padding: 10px 18px; font-weight: 600; font-size: 14px; cursor: pointer; transition: background-color 150ms cubic-bezier(0.16, 1, 0.3, 1), transform 150ms cubic-bezier(0.16, 1, 0.3, 1); } .ds-btn-primary:hover { background: oklch(50% 0.16 40); transform: translateY(-1px); } .ds-btn-primary:focus-visible { outline: 2px solid oklch(58% 0.16 40); outline-offset: 2px; } .ds-btn-primary:disabled { background: oklch(85% 0.01 255); cursor: not-allowed; transform: none; }"
+      "css": ".ds-btn-primary { background: oklch(54% 0.13 28); color: oklch(100% 0 0); border: none; border-radius: 999px; padding: 10px 18px; font-weight: 600; font-size: 14px; cursor: pointer; transition: background-color 150ms cubic-bezier(0.16, 1, 0.3, 1), transform 150ms cubic-bezier(0.16, 1, 0.3, 1); } .ds-btn-primary:hover { background: oklch(45% 0.13 28); transform: translateY(-1px); } .ds-btn-primary:focus-visible { outline: 2px solid oklch(54% 0.13 28); outline-offset: 2px; } .ds-btn-primary:disabled { background: oklch(85% 0.01 255); cursor: not-allowed; transform: none; }"
     },
     {
       "name": "Ghost Button",
@@ -161,7 +161,7 @@
       "refersTo": "input",
       "description": "Campo de texto del login/chat.",
       "html": "<input class=\"ds-input\" type=\"text\" placeholder=\"Escribe tu mensaje...\" />",
-      "css": ".ds-input { border: 1px solid oklch(90% 0.01 255); background: oklch(100% 0 0); border-radius: 8px; padding: 8px 10px; font-size: 14px; transition: border-color 150ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 150ms cubic-bezier(0.16, 1, 0.3, 1); } .ds-input:focus { outline: none; border-color: oklch(58% 0.16 40); box-shadow: 0 0 0 3px oklch(58% 0.16 40 / 0.15); }"
+      "css": ".ds-input { border: 1px solid oklch(90% 0.01 255); background: oklch(100% 0 0); border-radius: 8px; padding: 8px 10px; font-size: 14px; transition: border-color 150ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 150ms cubic-bezier(0.16, 1, 0.3, 1); } .ds-input:focus { outline: none; border-color: oklch(54% 0.13 28); box-shadow: 0 0 0 3px oklch(58% 0.16 40 / 0.15); }"
     },
     {
       "name": "Widget Bubble",
@@ -169,7 +169,7 @@
       "refersTo": "chat-widget-bubble",
       "description": "Burbuja flotante del widget minimizado — componente señal del sistema.",
       "html": "<button class=\"ds-widget-bubble\" aria-label=\"Abrir chat\">💬</button>",
-      "css": ".ds-widget-bubble { width: 56px; height: 56px; border-radius: 999px; border: none; background: oklch(58% 0.16 40); color: white; font-size: 22px; cursor: pointer; box-shadow: 0 6px 20px oklch(24% 0.07 255 / 0.25); transition: transform 150ms cubic-bezier(0.16, 1, 0.3, 1); } .ds-widget-bubble:hover { transform: scale(1.05); }"
+      "css": ".ds-widget-bubble { width: 56px; height: 56px; border-radius: 999px; border: none; background: oklch(54% 0.13 28); color: white; font-size: 22px; cursor: pointer; box-shadow: 0 6px 20px oklch(24% 0.07 255 / 0.25); transition: transform 150ms cubic-bezier(0.16, 1, 0.3, 1); } .ds-widget-bubble:hover { transform: scale(1.05); }"
     }
   ],
   "narrative": {

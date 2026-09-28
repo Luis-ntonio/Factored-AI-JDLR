@@ -2,8 +2,14 @@
   --color-navy: oklch(24% 0.07 255);
   --color-navy-ink: oklch(20% 0.03 255);
   --color-navy-ink-muted: oklch(45% 0.02 255);
-  --color-terracotta: oklch(58% 0.16 40);
-  --color-terracotta-deep: oklch(50% 0.16 40);
+  /* Terracota real (arcilla, ladrillo cocido) -- ajustado tras feedback:
+     el valor anterior (hue 40, chroma 0.16) leía como naranja genérico de
+     semáforo, no como un color de marca deliberado. Menos croma (más
+     tierra, menos "candy"), hue corrido hacia el rojo (28 en vez de 40) y
+     un poco más oscuro -- misma familia, mucho más "clay", menos "Bootstrap
+     warning orange". */
+  --color-terracotta: oklch(54% 0.13 28);
+  --color-terracotta-deep: oklch(45% 0.13 28);
   --color-surface: oklch(97% 0.008 255);
   --color-surface-raised: oklch(100% 0 0);
   --color-border-subtle: oklch(90% 0.01 255);
@@ -27,7 +33,7 @@
   --color-teal: oklch(48% 0.09 200);
   --color-teal-deep: oklch(36% 0.08 200);
   --color-teal-surface: oklch(93% 0.03 200);
-  --color-terracotta-tint: oklch(93% 0.04 40);
+  --color-terracotta-tint: oklch(93% 0.04 28);
 
   --radius-sm: 8px;
   --radius-md: 12px;
@@ -361,7 +367,7 @@ body {
 .chat-input-bar input:focus {
   outline: none;
   border-color: var(--color-terracotta);
-  box-shadow: 0 0 0 3px oklch(58% 0.16 40 / 0.15);
+  box-shadow: 0 0 0 3px oklch(54% 0.13 28 / 0.15);
 }
 
 .chat-input-bar button {
@@ -515,7 +521,7 @@ body {
 .modal-card input:focus {
   outline: none;
   border-color: var(--color-terracotta);
-  box-shadow: 0 0 0 3px oklch(58% 0.16 40 / 0.15);
+  box-shadow: 0 0 0 3px oklch(54% 0.13 28 / 0.15);
 }
 
 .modal-error {

@@ -5,8 +5,8 @@ colors:
   navy-deep: "oklch(24% 0.07 255)"
   navy-ink: "oklch(20% 0.03 255)"
   navy-ink-muted: "oklch(45% 0.02 255)"
-  terracotta: "oklch(58% 0.16 40)"
-  terracotta-deep: "oklch(50% 0.16 40)"
+  terracotta: "oklch(54% 0.13 28)"
+  terracotta-deep: "oklch(45% 0.13 28)"
   surface: "oklch(97% 0.008 255)"
   surface-raised: "oklch(100% 0 0)"
   border-subtle: "oklch(90% 0.01 255)"
@@ -21,7 +21,7 @@ colors:
   teal: "oklch(48% 0.09 200)"
   teal-deep: "oklch(36% 0.08 200)"
   teal-surface: "oklch(93% 0.03 200)"
-  terracotta-tint: "oklch(93% 0.04 40)"
+  terracotta-tint: "oklch(93% 0.04 28)"
 typography:
   hook:
     fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"
@@ -145,12 +145,16 @@ otro color de marca — el resto son neutros.
   negro, con el tinte de matiz del navy en vez de un gris/negro neutro.
 
 ### Secondary
-- **Terracota** (`oklch(58% 0.16 40)`): el ÚNICO acento de acción del sistema
-  — botón de enviar mensaje, botón "Ingresar" del login, links, foco de
-  inputs. **The One Action Rule.** Si un elemento es clickeable y dispara la
-  acción principal de su contexto, es terracota. Si no, no lo es — nunca dos
-  colores de acción compitiendo en la misma pantalla.
-- **Terracota Profundo** (`oklch(50% 0.16 40)`): hover/active de lo anterior.
+- **Terracota** (`oklch(54% 0.13 28)`, corregido 2026-09-28 -- el valor
+  original, `oklch(58% 0.16 40)`, leía como naranja de semáforo genérico
+  en vez de un color de marca deliberado; menos croma y hue corrido hacia
+  el rojo/arcilla lo resuelve sin cambiar el rol): el ÚNICO acento de
+  acción del sistema — botón de enviar mensaje, botón "Ingresar" del
+  login, links, foco de inputs. **The One Action Rule.** Si un elemento es
+  clickeable y dispara la acción principal de su contexto, es terracota.
+  Si no, no lo es — nunca dos colores de acción compitiendo en la misma
+  pantalla.
+- **Terracota Profundo** (`oklch(45% 0.13 28)`): hover/active de lo anterior.
 
 ### Neutral
 - **Superficie** (`oklch(97% 0.008 255)`): fondo de página/app-shell — casi
@@ -310,7 +314,7 @@ que el sistema anterior (que usaba 8-12px casi en todos lados).
 ### Inputs / Fields
 - **Style:** borde `1px` en Borde Sutil, fondo blanco, radio `8px`.
 - **Focus:** borde pasa a Terracota + halo sutil (`box-shadow: 0 0 0 3px
-  oklch(58% 0.16 40 / 0.15)`) — nunca solo un cambio de color de borde sin
+  oklch(54% 0.13 28 / 0.15)`) — nunca solo un cambio de color de borde sin
   ningún indicador adicional (accesibilidad de foco).
 - **Error:** borde Crimson, texto de error debajo en Crimson.
 
@@ -362,11 +366,17 @@ como estado base persistente) — todas corren una sola vez al montar, con
 problema real de contenido que nunca aparece si el JS falla o si una
 captura headless corre antes de que el scroll dispare el reveal.
 
-**Pendiente declarado (no una decisión final):** esta landing no usa
-fotografía ni ilustración todavía — el usuario va a incorporar un MCP de
-generación de imágenes más adelante. Cuando eso pase, revisar este archivo:
-la landing probablemente gane una sección de "plates" (ilustración por
-producto) que hoy no existe.
+**Pendiente declarado (actualizado 2026-09-28, todavía no resuelto):** esta
+landing no usa fotografía ni ilustración todavía. El usuario instaló el
+plugin `media-pipeline` (Gemini/OpenAI vía `mcp__plugin_media-pipeline_
+media-pipeline__create_asset`) en esta sesión, pero la generación real
+falló por falta de `GEMINI_API_KEY`/`OPENAI_API_KEY` configurada en el
+entorno -- la herramienta existe, la credencial no. Falta un ícono/
+ilustración por producto en `ProductShowcase.tsx` (feedback explícito:
+"a las tarjetas también les falta identidad"). Cuando la API key esté
+configurada, retomar: generar 4 íconos duotono navy/teal (nunca terracota
+-- ese color se reserva para el CTA, no para decorar la tarjeta) y
+agregarlos a cada `product-card`.
 
 ## Do's and Don'ts
 
