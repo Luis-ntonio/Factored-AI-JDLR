@@ -19,15 +19,12 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import FunctionTransformer, OneHotEncoder, StandardScaler
 
-from .features import CATEGORICAL_COLUMNS, FEATURE_COLUMNS, build_features
+from .features import BOOLEAN_COLUMNS, CATEGORICAL_COLUMNS, FEATURE_COLUMNS, NUMERIC_COLUMNS, build_features
 from .preprocessing import bool_to_float
 from .split import temporal_split
 
 DATA_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "transactions.parquet")
 MODEL_PATH = os.path.join(os.path.dirname(__file__), "..", "models", "fraud_model.pkl")
-
-NUMERIC_COLUMNS = [c for c in FEATURE_COLUMNS if c not in CATEGORICAL_COLUMNS and c != "is_weekend" and c != "is_first_transaction" and c != "is_new_country_for_customer"]
-BOOLEAN_COLUMNS = ["is_weekend", "is_first_transaction", "is_new_country_for_customer"]
 
 
 def build_pipeline() -> Pipeline:
@@ -61,7 +58,7 @@ def build_pipeline() -> Pipeline:
 def main() -> None:
     if not os.path.exists(DATA_PATH):
         raise SystemExit(
-            f"{DATA_PATH} no existe -- correr primero scripts/download_transactions.py (ver ml/README.md)."
+            f"{DATA_PATH} no existe -- correr primero scripts/download_tables.py --table transactions (ver ml/README.md)."
         )
 
     print("Construyendo features (point-in-time, ver features.py)...")
