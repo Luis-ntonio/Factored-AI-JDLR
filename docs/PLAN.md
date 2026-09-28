@@ -725,12 +725,14 @@ Pivot de prioridad basado en el EDA real del dataset del hackathon (`hacka-info/
 - **QA en dos rondas:** 275 tests (ronda 1) → 279 tests (ronda 2, tras cerrar un gap real de cobertura de test en las reglas nuevas de policy-agent que encontró el reviewer). Sin regresión en el flujo viejo.
 - **Incidente de concurrencia entre agentes:** un `git stash`/`reset` repo-wide durante el trabajo en paralelo de dos agentes, resuelto por ambos de forma independiente y verificado por el reviewer sin pérdida de datos. Stash dejado sin dropear como red de seguridad hasta confirmar el commit de esta fase.
 
-## Pendiente de decidir (actualizado — Fase 3, pivot transaction-dispute)
+## Fase Dispute 2 — Act/Verify/Escalate + infra real + 2 bugs encontrados y arreglados (2026-09-28)
 
-- **Act de disputa** (Lambda nuevo que use `TransactionRepository` para identificar la transacción real, confirmar con el cliente, bloquear tarjeta, abrir disputa) — no existe todavía, es la fase siguiente.
-- **Verify/Escalate extendidos para disputa** — sin tocar en esta fase, a extender cuando exista el Act.
-- **Terraform/ASL para disputa** — sin ningún recurso nuevo, el flujo no está conectado a AWS real todavía.
-- **Confirmación del contrato `post_action` de disputa** (`DisputeVerificationResult`, umbral de `fraud_score`, correlación) — queda `PROPOSAL_NOT_CONFIRMED` en `policies.yaml`, a resolver junto con quien construya el Act.
-- **`is_repeat_complainer`** — sin viabilidad en esta fase, requiere query nueva de historial por `customerId`.
+Cierra todos los pendientes que dejó Fase 3. Detalle técnico completo (causa raíz, fix, verificación) en `docs/STATUS.md`, sección "Fase Dispute 2" — acá el resumen para el historial.
+
+- **Act de disputa** (`computeDisputeVerification`, `transaction-agent`), `verification-agent`/`escalation-agent` extendidos, `post_action_rules` de disputa CONFIRMADAS en `policies.yaml`, y ASL/Terraform desplegados a AWS real — los 4 pendientes que dejó Fase 3 ya no aplican.
+- **Bug crítico encontrado y arreglado:** el guardrail de Bedrock de policy-agent escalaba TODA disputa a ciegas — el prompt de sistema (`model-decider.ts`) describía únicamente la forma de `EligibilityResult`, sin ningún conocimiento del shape de `DisputeVerificationResult` ni del intent `dispute_unrecognized_charge`. Fix verificado con 53 tests + 5/5 casos reales contra Amazon Bedrock (`us.anthropic.claude-sonnet-4-6`) coincidiendo con la política de negocio. Desplegado.
+- **Segundo bug encontrado y arreglado** (durante la verificación E2E real del primero): `conversation-agent` perdía el intent de disputa activo al responder una pregunta CLARIFY — `lastIntent` se persistía pero nunca se leía de vuelta. Fix (`resolveEffectiveIntent`) verificado con 6 tests + conversación real de 2 turnos completada end-to-end contra la API desplegada. Desplegado.
+- **331 tests** en verde (sin regresión), pipeline de disputa completo corriendo end-to-end contra AWS real, confirmado con `curl` real, no solo localmente.
+- `is_repeat_complainer`/`dispute_status_check` siguen fuera de scope, mismas razones que Fase 3.
 - Los pendientes ya existentes de fases anteriores (política de retención de `ttl`, `AdministratorAccess` del usuario del proyecto, hardening de Security) siguen sin resolver, sin relación con este pivot.
-- Limpieza del `git stash` dejado como red de seguridad durante el incidente de concurrencia — corresponde al usuario confirmarlo y limpiarlo después de revisar los commits de esta fase.
+- Limpieza del `git stash` dejado como red de seguridad durante el incidente de concurrencia de Fase 3 — corresponde al usuario confirmarlo y limpiarlo.

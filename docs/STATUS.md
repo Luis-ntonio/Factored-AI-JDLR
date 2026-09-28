@@ -1176,3 +1176,54 @@ Nadie puede disputar nada real todavía — esta fase es exclusivamente Understa
 - **`is_repeat_complainer`**: requiere una query nueva de historial cross-case por `customerId` contra DynamoDB — no existe, documentado como limitación.
 - **`dispute_status_check`**: intent descartado por ahora, MVP acotado al intake.
 - **Reconectar todo end-to-end**: una vez que exista el Act, hay que repetir el mismo trabajo de conexión que ya se hizo para `eligibility_check` (Step Function real, IAM scoped, verificación contra AWS real con `curl`/`start-sync-execution`).
+
+## Fase Dispute 2 — Act/Verify/Escalate + infra real + 2 bugs encontrados y arreglados (2026-09-28)
+
+Cierra todo lo dejado pendiente por Fase 3: existe Act de disputa real, Verify/Escalate extendidos, infraestructura desplegada en AWS real, y el pipeline completo de `dispute_unrecognized_charge` corre de punta a punta contra la API real — verificado con `curl` real, no solo tests.
+
+### Qué se construyó
+
+**1. Contrato `DisputeVerificationResult`** (`packages/shared/src/contracts/dispute-verification-result.ts`) — resuelve las 3 preguntas abiertas de Fase 3: shape (`caseId`, `transactionFound`, `transactionId?`, `fraudSuspected`, `productBlocked`), umbral de fraude (señal única `transaction.is_fraud`, sin corte de `fraud_score` — no hay caso límite real en el mock que lo justifique), correlación (misma tabla/partición que `EligibilityResult`, `sk = RESULT#dispute#<turnId>`).
+
+**2. Act de disputa** (`services/transaction-agent/src/compute-dispute.ts`, `computeDisputeVerification`): localiza la transacción real disputada del cliente acotando candidatas por ownership real de producto tipo tarjeta; 0 o 2+ candidatas se tratan como "no encontrado" (nunca se adivina una entre varias). Idempotencia sobre `DisputeStore` (DynamoDB real + fallback in-memory), mismo patrón que `compute-eligibility.ts`.
+
+**3. Reglas `post_action` confirmadas** en `policies.yaml` (`dispute_post_action_contract_status: CONFIRMED`): `escalate-dispute-fraud-suspected`, `escalate-dispute-transaction-not-found`, `auto-dispute-transaction-confirmed-no-fraud`, en el mismo array `post_action_rules` que eligibility, mismo evaluador.
+
+**4. `verification-agent` extendido**: segunda verificación independiente de `DisputeVerificationResult` — invariante `productBlocked === (transactionFound && !fraudSuspected)`, y re-derivación de ownership/fraude contra el core bancario simulado cuando `transactionFound`, sin confiar en lo que ya afirmó el Act.
+
+**5. `escalation-agent` extendido**: resúmenes y preguntas pendientes bilingües (es/pt) específicos de disputa para `verification_failed` y `post_action_decision`.
+
+**6. Terraform/ASL**: `ActTransaction` enruta también `dispute_unrecognized_charge` (mismo Lambda, discriminado por intent). Dos estados `Pass` nuevos (`PreparePostActionEligibility`/`PreparePostActionDispute`) arman el Payload plano específico de cada intent antes de `PostActionDecide`, sin tocar el contrato de `policy-agent/src/handler.ts`. Desplegado contra AWS real (`banking-agent-dev-chat-orchestrator`).
+
+### Bug 1 (crítico) — el guardrail de Bedrock escalaba TODA disputa a ciegas
+
+Encontrado al reanudar esta fase tras una interrupción por rate-limit del subagente de devops, que reportó el síntoma pero no llegó a diagnosticarlo.
+
+**Causa raíz confirmada** (leyendo `services/policy-agent/src/bedrock/model-decider.ts`): `buildSystemPrompt(stage: "post_action")` describía ÚNICAMENTE la forma de `EligibilityResult` (`productType`/`eligibility_score`/`score_zone`). Un `DisputeVerificationResult` real le llegaba al modelo con campos que el prompt ni mencionaba (`transactionFound`/`fraudSuspected`/`productBlocked`), y el prompt de `pre_action` tampoco reconocía el intent `dispute_unrecognized_charge` ni sus 4 entities nuevas. Sin contexto del shape que veía, el modelo proponía `ESCALATE` por su propia regla de desempate ante ambigüedad — y esa propuesta ganaba siempre vía `applyModelGuardrail` ("más conservador gana"), sin importar lo que dijera la regla determinista de `policies.yaml`. `handler.ts` tenía el mismo bug a nivel de tipos (`PostActionEvent` hardcodeado a `EligibilityResult`).
+
+**Fix** (`model-decider.ts`, `handler.ts`): prompt de sistema ahora describe ambas formas posibles (`EligibilityResult`/`DisputeVerificationResult`) y le dice al modelo cómo distinguirlas por los campos presentes; el prompt de `pre_action` reconoce el intent y las 4 entities de disputa; tipos correctos en `handler.ts` (`PostActionEvent` acepta ambos contratos). Una segunda vuelta de verificación contra Bedrock real expuso un problema más sutil: aun con el prompt corregido, el modelo trataba `productBlocked: true` como una señal de riesgo adicional ("bloqueo de alto impacto pendiente de aprobar") y seguía escalando el caso de bajo riesgo por excelencia del flujo — se afinó el prompt para aclarar que ese bloqueo es la acción preventiva estándar y reversible ya ejecutada, no una decisión pendiente.
+
+**Verificación** (dos capas):
+- 53 tests de `policy-agent` (incluye 3 regresiones nuevas: 2 en `model-decider.test.ts` que inspeccionan el `system` prompt real enviado a Bedrock, 1 E2E en `handler.bedrock.test.ts` con un `DisputeVerificationResult` real de punta a punta).
+- Contra Amazon Bedrock real (`us.anthropic.claude-sonnet-4-6`, invocado directamente con el prompt de producción): 5/5 casos coinciden con la política de negocio — `post_action` (encontrada+sin fraude → `AUTO`, con fraude → `ESCALATE`, no encontrada → `ESCALATE`), `pre_action` (datos completos → `AUTO`, datos incompletos → `CLARIFY`).
+
+Desplegado a AWS real (`banking-agent-dev-policy-agent`, dos `terraform apply` — uno por cada vuelta de ajuste del prompt).
+
+### Bug 2 — una respuesta a un CLARIFY perdía el intent de disputa activo
+
+Encontrado durante la verificación E2E real del Bug 1 (`curl` contra la API desplegada, conversación de 2 turnos): tras el `CLARIFY` real pidiendo `product_type`, la respuesta del usuario ("Es de mi tarjeta de crédito") se reclasificó como un intent nuevo (`product_info`) en vez de continuar la disputa, aunque el dato SÍ llenaba el campo pedido.
+
+**Causa raíz** (`services/conversation-agent/src/context/context-manager.ts`): `lastIntent` se persistía en `ConversationStateItem` (DynamoDB) en cada turno, pero nunca se leía de vuelta para nada — el intent se reclasificaba desde cero, solo a partir del texto del mensaje actual, sin memoria de que había una disputa a medio resolver.
+
+**Fix**: `resolveEffectiveIntent` — si el intent anterior tenía `missing_fields` pendientes (el turno anterior terminó en `CLARIFY`) y el mensaje de este turno aporta un valor no nulo para al menos uno de esos campos pendientes, se continúa el intent anterior en vez de reclasificar. Un cambio de tema real sigue funcionando sin cambios (sus entities no llenan los `missing_fields` del intent anterior, así que la condición nunca se activa).
+
+**Verificación**: 6 tests nuevos (`context-manager-continuity.test.ts`, 4 unitarios sobre la función pura + 2 de integración contra `buildUnderstandOutput` con estado persistido simulado) + confirmación real contra la API desplegada: la conversación completa de 2 turnos (disputa inicial → `CLARIFY` real → respuesta con el dato faltante) ahora completa correctamente con `status: "ok"`, `transactionFound: true` (`TXN-000001`, transacción real de María en el mock), `fraudSuspected: false`, `productBlocked: true`.
+
+Desplegado a AWS real (`banking-agent-dev-conversation-agent`).
+
+### Estado final de esta fase
+
+- **331 tests** en verde (325 previos + 6 nuevos de continuidad de intent), sin regresión en ningún servicio.
+- Pipeline `dispute_unrecognized_charge` completo (Understand→Decide→Act→Verify→PostActionDecide→respuesta) corriendo end-to-end contra AWS real, verificado con `curl` real contra `chat_api_endpoint`, no solo localmente.
+- `dispute_post_action_contract_status: CONFIRMED` en `policies.yaml` — ya no es una propuesta.
+- Pendiente explícito (no bloqueante, próxima fase si queda tiempo): `is_repeat_complainer` y `dispute_status_check` siguen fuera de scope (mismas razones que Fase 3); robustecer más el flujo de eligibility si el usuario lo pide ("si queda tiempo").
