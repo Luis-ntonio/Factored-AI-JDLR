@@ -26,8 +26,11 @@
 export type LanguageCode = "es" | "pt";
 
 /**
- * Sub-intención dentro del único flujo soportado
- * ("credit-product info & eligibility").
+ * Sub-intención dentro de los flujos soportados. Desde el pivot de negocio
+ * de 2026-09-27 (ver `hacka-info/EDA_LATAM_Bank_resumen.md`, contexto local
+ * no versionado) el foco pasó a "transaction-dispute intake", pero el flujo
+ * viejo ("credit-product info & eligibility") NO se retira — sigue siendo
+ * válido, solo deja de ser prioridad. Todo agregado acá es ADITIVO.
  *
  * - product_info: preguntas sobre catálogo/condiciones de productos de
  *   crédito (tasas, requisitos, plazos) sin pedir un veredicto de
@@ -39,6 +42,17 @@ export type LanguageCode = "es" | "pt";
  *   (horarios, canales de contacto, qué es una tasa efectiva anual, etc.).
  * - escalation_request: el usuario pide explícitamente hablar con un humano/
  *   agente/representante, independientemente de si hay datos completos.
+ * - dispute_unrecognized_charge: el usuario reporta un cargo/transacción que
+ *   no reconoce o considera indebido en su cuenta/tarjeta. Cubre a propósito
+ *   TANTO "Cargo no reconocido" COMO "Cobro indebido" del EDA del dataset
+ *   LATAM Bank: son procedimentalmente idénticos aguas abajo (identificar la
+ *   transacción real del cliente — nunca contra la tabla `complaints`, que
+ *   el EDA mostró no verificable — confirmar con el cliente, bloquear la
+ *   tarjeta, abrir la disputa, y escalar según monto/sospecha de
+ *   fraude/reincidencia). Esa lógica de acción vive en policy-agent; acá
+ *   solo se clasifica y se extraen entities. NOTA: `dispute_status_check`
+ *   (consultar el estado de una disputa ya abierta) fue considerado y
+ *   descartado por ahora — MVP acotado, ver docs/CONTRACTS.md sección 8.
  * - unknown: no clasificable con confianza suficiente. Debe forzar CLARIFY
  *   aguas abajo (policy-agent) — conversation-agent NUNCA elige un intent
  *   "adivinado" solo para evitar un unknown.
@@ -48,6 +62,7 @@ export type Intent =
   | "eligibility_check"
   | "faq"
   | "escalation_request"
+  | "dispute_unrecognized_charge"
   | "unknown";
 
 export const INTENTS: readonly Intent[] = [
@@ -55,6 +70,7 @@ export const INTENTS: readonly Intent[] = [
   "eligibility_check",
   "faq",
   "escalation_request",
+  "dispute_unrecognized_charge",
   "unknown",
 ];
 
@@ -112,6 +128,26 @@ export const DOCUMENT_TYPES: readonly DocumentType[] = [
 ];
 
 /**
+ * Motivo de disputa declarado/inferido para `dispute_unrecognized_charge`.
+ * Se modela separado de `product_type` (que identifica QUÉ producto/tarjeta)
+ * porque policy-agent necesita el motivo para decidir el copy de
+ * confirmación y, potencialmente, distintas reglas de escalación a futuro.
+ *
+ * "other" es intencionalmente una categoría de RESERVA para una fase
+ * posterior (ej. triage manual/policy-agent) — conversation-agent (heurística
+ * ni Bedrock) NUNCA debe asignar "other" de su lado; si el motivo no matchea
+ * ninguna keyword/categoría conocida, el campo queda `null` (ver
+ * entity-extractor.ts y bedrock-understander.ts).
+ */
+export type DisputeReason = "unrecognized_charge" | "duplicate_or_overcharge" | "other";
+
+export const DISPUTE_REASONS: readonly DisputeReason[] = [
+  "unrecognized_charge",
+  "duplicate_or_overcharge",
+  "other",
+];
+
+/**
  * Slots de entidades acumulados a lo largo de la conversación (context
  * manager). Cada campo es independiente: `null` significa "todavía no
  * provisto por el usuario en ningún turno de este case", NO "usuario
@@ -159,6 +195,37 @@ export interface Entities {
    * indicó explícitamente que no lo es, null si no se mencionó.
    */
   existing_customer: boolean | null;
+
+  /**
+   * Monto del cargo/transacción disputada, mismo criterio y mismas
+   * limitaciones de moneda que `income`/`requested_amount` (número crudo,
+   * sin resolución de moneda/país). `null` si no fue mencionado.
+   * Ejemplo: 150
+   */
+  disputed_amount: number | null;
+
+  /**
+   * Nombre del comercio/establecimiento tal como lo escribió el usuario, sin
+   * normalización (no se resuelve contra un catálogo de comercios ni contra
+   * `products`/`transactions` — esa verificación es responsabilidad de
+   * transaction-agent en una fase posterior). `null` si no fue mencionado.
+   * Ejemplo: "Amazon", "una tienda que no conozco"
+   */
+  merchant: string | null;
+
+  /**
+   * Fecha aproximada de la transacción disputada, en el texto/frase best-
+   * effort tal como la dijo el usuario (ej. "ayer", "la semana pasada", "el
+   * 3 de marzo"). DELIBERADAMENTE no se parsea a una fecha real/ISO acá —
+   * ver limitación documentada en docs/CONTRACTS.md: un parser de fechas
+   * relativas robusto (que resuelva "ayer" contra la fecha del turno, maneje
+   * ambigüedad de mes/día por locale, etc.) está fuera de scope de esta capa.
+   * `null` si no fue mencionada.
+   */
+  transaction_date: string | null;
+
+  /** Motivo de la disputa. `null` si no hay señal suficiente para clasificarlo. */
+  dispute_reason: DisputeReason | null;
 }
 
 /** Entities completamente vacías — útil como valor inicial de un case nuevo. */
@@ -171,6 +238,10 @@ export function emptyEntities(): Entities {
     document_type: null,
     product_type: null,
     existing_customer: null,
+    disputed_amount: null,
+    merchant: null,
+    transaction_date: null,
+    dispute_reason: null,
   };
 }
 
@@ -185,6 +256,10 @@ export const ENTITY_KEYS: readonly EntityKey[] = [
   "document_type",
   "product_type",
   "existing_customer",
+  "disputed_amount",
+  "merchant",
+  "transaction_date",
+  "dispute_reason",
 ];
 
 /**
@@ -210,6 +285,23 @@ export const REQUIRED_ENTITIES_BY_INTENT: Readonly<Record<Intent, readonly Entit
   ],
   faq: [],
   escalation_request: [],
+  // Solo estos dos campos son obligatorios vía este mecanismo (semántica AND,
+  // igual que el resto de esta matriz): identidad (`document_id`) y qué
+  // producto/tarjeta está en juego (`product_type`).
+  //
+  // IMPORTANTE — por qué NO están acá `disputed_amount`/`merchant`/
+  // `transaction_date`: la regla de negocio real exige "al menos UNO de los
+  // tres" (semántica OR), y esta matriz es una lista plana con semántica AND
+  // — no puede modelar un OR. Esto NO es un bug/descuido: policy-agent debe
+  // implementar esa validación OR como una regla ADICIONAL más estricta
+  // directamente sobre `entities`, exactamente el mismo patrón ya usado hoy
+  // en `policies.yaml` para la regla `clarify-eligibility-document-type-not-
+  // explicit` (que chequea `entities.document_type` directamente, encima de
+  // lo que ya exige esta matriz para `eligibility_check`). Si en el futuro
+  // alguien "corrige" esto agregando los tres campos acá, va a exigir los
+  // TRES a la vez (AND), lo cual es una regla de negocio más estricta y
+  // distinta a la real.
+  dispute_unrecognized_charge: ["product_type", "document_id"],
   unknown: [],
 };
 

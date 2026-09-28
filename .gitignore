@@ -15,6 +15,11 @@ dist/
 /*.png
 /*.gif
 
+# Material del nuevo dataset del hackathon (info del equipo, tutorial de
+# acceso a la data) -- contexto local, nunca se versiona (puede tener
+# credenciales/URLs de acceso al dataset).
+/hacka-info/
+
 # Variables de entorno reales -- nunca versionar secretos.
 .env
 .env.local

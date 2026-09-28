@@ -96,6 +96,7 @@ Enum de string, uno de:
 | `"eligibility_check"` | El usuario quiere saber si califica para un producto. |
 | `"faq"` | Preguntas generales no transaccionales (horarios, canales, definiciones). |
 | `"escalation_request"` | Pedido explícito de hablar con un humano — **gana** sobre cualquier otra señal en el mismo mensaje. |
+| `"dispute_unrecognized_charge"` | El usuario reporta un cargo/transacción que no reconoce o considera indebido/duplicado. Agregado en el pivot de negocio de 2026-09-27 (ver `hacka-info/EDA_LATAM_Bank_resumen.md`, contexto local): cubre a la vez "Cargo no reconocido" y "Cobro indebido" del EDA porque el procedimiento aguas abajo es idéntico (identificar la transacción real del cliente, confirmar, bloquear tarjeta, abrir disputa, escalar según monto/fraude/reincidencia). Gana sobre `product_info`/`eligibility_check` aunque el mensaje mencione un producto/tarjeta. |
 | `"unknown"` | Sin señal suficiente para clasificar. Debe forzar CLARIFY en policy-agent — conversation-agent nunca "adivina" un intent solo para evitar `unknown`. |
 
 ### 4.2 `language: LanguageCode`
@@ -120,6 +121,10 @@ provisto todavía en ningún turno de este `caseId`".
 | `document_type` | `"DNI" \| "CC" \| "CPF" \| "RG" \| "passport" \| "other" \| "unknown" \| null` | `"DNI"` | Inferido junto con `document_id` por patrón/idioma. Ver limitación de cobertura de formatos LATAM. |
 | `product_type` | `"personal_loan" \| "credit_card" \| "auto_loan" \| "mortgage" \| "unknown" \| null` | `"personal_loan"` | |
 | `existing_customer` | `boolean \| null` | `true` | `true`/`false` solo si el usuario lo indicó explícitamente; `null` si no se mencionó (no asumir `false` por defecto). |
+| `disputed_amount` | `number \| null` | `150` | Monto del cargo/transacción disputada. Mismo criterio y limitación de moneda que `income`/`requested_amount` — número crudo, sin resolución de moneda/país. |
+| `merchant` | `string \| null` | `"Amazon"` | Nombre del comercio tal como lo escribió el usuario, texto libre sin normalizar ni verificar contra ningún catálogo (esa verificación contra `products`/`transactions` reales es responsabilidad de transaction-agent en una fase posterior). |
+| `transaction_date` | `string \| null` | `"ayer"`, `"la semana pasada"` | Fecha aproximada como TEXTO LIBRE best-effort (frases relativas/explícitas comunes ES/PT). **Deliberadamente sin parser de fechas real** — ver limitación en sección 8. |
+| `dispute_reason` | `"unrecognized_charge" \| "duplicate_or_overcharge" \| "other" \| null` | `"unrecognized_charge"` | Motivo de la disputa. `"other"` es una categoría de **reserva para una fase posterior** — conversation-agent (heurística ni Bedrock) nunca la asigna por su cuenta; si no hay señal clara, el valor queda `null`. |
 
 ### 4.4 `missing_fields: EntityKey[]`
 
@@ -132,6 +137,7 @@ Subconjunto de las keys de `Entities` (mismo nombre exacto de campo) que
 - `eligibility_check` requiere: `product_type`, `income`,
   `employment_status`, `requested_amount`, `document_id`,
   `existing_customer`
+- `dispute_unrecognized_charge` requiere: `product_type`, `document_id`
 - `faq`, `escalation_request`, `unknown` requieren: (ninguno)
 
 policy-agent puede exigir campos ADICIONALES más estrictos en
@@ -139,6 +145,20 @@ policy-agent puede exigir campos ADICIONALES más estrictos en
 autorizar AUTO) — esta matriz es el mínimo que conversation-agent garantiza
 calcular de forma consistente con su propio estado, no el techo de reglas
 de negocio de policy-agent.
+
+**Caso especial `dispute_unrecognized_charge` — regla OR no modelable acá:**
+la regla de negocio real también exige "al menos UNO de `disputed_amount`,
+`merchant`, `transaction_date`" para poder identificar la transacción. Esta
+matriz es una lista plana con semántica AND (todos los campos listados son
+obligatorios) y no puede expresar un OR, así que esos tres campos
+deliberadamente NO están en la lista de arriba. policy-agent implementa esa
+validación OR como una regla ADICIONAL directamente sobre `entities` en
+`policies.yaml`, con el mismo patrón ya usado hoy por la regla
+`clarify-eligibility-document-type-not-explicit` (que chequea
+`entities.document_type` directamente, encima de lo que ya exige esta
+matriz para `eligibility_check`). Esto está documentado también como
+comentario en el código (`REQUIRED_ENTITIES_BY_INTENT` en
+`understand-output.ts`) para que nadie lo "corrija" pensando que es un bug.
 
 ### 4.5 `context: UnderstandContext`
 
@@ -168,7 +188,11 @@ Mensaje: *"Hola, quiero saber si califico para una tarjeta de crédito"*
     "document_id": null,
     "document_type": null,
     "product_type": "credit_card",
-    "existing_customer": null
+    "existing_customer": null,
+    "disputed_amount": null,
+    "merchant": null,
+    "transaction_date": null,
+    "dispute_reason": null
   },
   "missing_fields": ["income", "employment_status", "requested_amount", "document_id", "existing_customer"],
   "context": {
@@ -198,7 +222,11 @@ fueron dados en turnos anteriores y están en DynamoDB).
     "document_id": "12345678900",
     "document_type": "CPF",
     "product_type": "credit_card",
-    "existing_customer": true
+    "existing_customer": true,
+    "disputed_amount": null,
+    "merchant": null,
+    "transaction_date": null,
+    "dispute_reason": null
   },
   "missing_fields": [],
   "context": {
@@ -225,7 +253,11 @@ fueron dados en turnos anteriores y están en DynamoDB).
     "document_id": null,
     "document_type": null,
     "product_type": "personal_loan",
-    "existing_customer": null
+    "existing_customer": null,
+    "disputed_amount": null,
+    "merchant": null,
+    "transaction_date": null,
+    "dispute_reason": null
   },
   "missing_fields": [],
   "context": {
@@ -243,6 +275,51 @@ Nota: en este ejemplo el usuario podría haber dado su `income` en un turno
 anterior — como la lectura falló, este turno no lo sabe. Es el trade-off
 documentado del fallback (ver sección 6): se prefiere volver a preguntar en
 vez de inventar o crashear.
+
+### 5.4 Español y portugués — `dispute_unrecognized_charge`
+
+Mensaje (ES): *"No reconozco un cargo de 150 en Amazon, fue ayer, mi
+documento es 12345678"*
+
+```json
+{
+  "intent": "dispute_unrecognized_charge",
+  "language": "es",
+  "entities": {
+    "income": null,
+    "employment_status": null,
+    "requested_amount": null,
+    "document_id": "12345678",
+    "document_type": "DNI",
+    "product_type": null,
+    "existing_customer": null,
+    "disputed_amount": 150,
+    "merchant": "Amazon",
+    "transaction_date": "ayer",
+    "dispute_reason": "unrecognized_charge"
+  },
+  "missing_fields": ["product_type"],
+  "context": {
+    "caseId": "7c8d...",
+    "customerId": null,
+    "turnId": "f1a2...",
+    "degraded": false,
+    "degradedReason": "none",
+    "historyTurns": 0
+  }
+}
+```
+
+Mensaje (PT), mismo caso: *"Não reconheço uma cobrança de 150 na Amazon,
+foi ontem, meu documento é 12345678"* — mismo `entities`/`missing_fields`
+con `"language": "pt"`.
+
+Nota: `product_type` sigue en `missing_fields` porque el usuario no mencionó
+qué tarjeta/producto está afectado en este turno — la matriz
+`REQUIRED_ENTITIES_BY_INTENT` para este intent exige `product_type` y
+`document_id` (ver sección 4.4). El caso SÍ cumple la regla OR de negocio
+(tiene `disputed_amount`, `merchant`, y `transaction_date`), pero esa regla
+la valida policy-agent, no esta lista de `missing_fields`.
 
 ## 6. Reliability — fallback ante fallo de DynamoDB
 
@@ -334,6 +411,21 @@ mecanismo, no fija el valor — ver su README). El valor vive centralizado en
 - **No hay un JSON Schema/Pydantic espejo para consumidores no-Node**
   todavía (ver sección 2) — si policy-agent termina en otro runtime, hace
   falta generarlo o mantenerlo a mano.
+- **`dispute_status_check` fuera de scope:** consultar el estado de una
+  disputa ya abierta (en vez de reportar una nueva) fue considerado y
+  descartado por ahora — MVP acotado al intake, no al seguimiento.
+- **`transaction_date` es texto libre, sin parser real:** deliberado — solo
+  reconoce un puñado de frases relativas/explícitas comunes por keyword
+  (`ayer`, `la semana pasada`, `el <día> de <mes>`, equivalentes en PT). No
+  resuelve la fecha contra el momento del turno, no maneja ambigüedad de
+  locale (día/mes), y no cubre todos los formatos posibles. Cualquier
+  resolución real de fecha (para cruzar contra `transactions`) es
+  responsabilidad de una fase posterior (transaction-agent).
+- **`merchant` no se verifica contra ningún catálogo:** es el texto libre
+  que escribió el usuario, tal cual. La verificación contra `products`/
+  `transactions` reales del cliente (el hallazgo crítico del EDA: la tabla
+  `complaints` NO sirve para esto, 0% de integridad) es responsabilidad de
+  transaction-agent, no de esta capa.
 
 ## 9. Cómo correr esto localmente
 

@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { emptyEntities, isUnderstandOutput, UnderstandOutput } from "../src/contracts/understand-output";
+import {
+  emptyEntities,
+  isUnderstandOutput,
+  INTENTS,
+  REQUIRED_ENTITIES_BY_INTENT,
+  UnderstandOutput,
+} from "../src/contracts/understand-output";
 
 function validOutput(): UnderstandOutput {
   return {
@@ -43,5 +49,30 @@ describe("isUnderstandOutput", () => {
     // @ts-expect-error -- prueba deliberada de forma inválida
     delete bad.context.caseId;
     expect(isUnderstandOutput(bad)).toBe(false);
+  });
+
+  it("acepta dispute_unrecognized_charge como intent válido", () => {
+    const output = { ...validOutput(), intent: "dispute_unrecognized_charge" as const };
+    expect(isUnderstandOutput(output)).toBe(true);
+  });
+});
+
+describe("emptyEntities", () => {
+  it("incluye los 4 campos nuevos de disputa, todos en null", () => {
+    const entities = emptyEntities();
+    expect(entities.disputed_amount).toBeNull();
+    expect(entities.merchant).toBeNull();
+    expect(entities.transaction_date).toBeNull();
+    expect(entities.dispute_reason).toBeNull();
+  });
+});
+
+describe("REQUIRED_ENTITIES_BY_INTENT", () => {
+  it("incluye dispute_unrecognized_charge en el enum de intents", () => {
+    expect(INTENTS).toContain("dispute_unrecognized_charge");
+  });
+
+  it("exige exactamente product_type y document_id para dispute_unrecognized_charge (la regla OR de monto/comercio/fecha es responsabilidad de policy-agent, no de esta matriz)", () => {
+    expect(REQUIRED_ENTITIES_BY_INTENT.dispute_unrecognized_charge).toEqual(["product_type", "document_id"]);
   });
 });
