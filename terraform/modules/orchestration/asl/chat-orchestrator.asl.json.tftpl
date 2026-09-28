@@ -1,5 +1,5 @@
 {
-  "Comment": "Chat orchestrator: Understand -> Decide -> Act (AUTO) -> Verify -> PostActionDecide (solo eligibility_check) -> respuesta. CLARIFY sigue respondiendo directo el reason/askField de policy-agent (no es una escalacion, es pedir un dato). ESCALATE (decision de policy-agent en pre_action), los resultados AUTO que Verify marca pending_confirmation, y los resultados de eligibility_check que PostActionDecide (policy-agent en stage post_action) marca ESCALATE (score borderline) pasan por escalation-agent para un resumen humano estructurado.",
+  "Comment": "Chat orchestrator: Understand -> Decide -> Act (AUTO) -> Verify -> PostActionDecide (eligibility_check y dispute_unrecognized_charge) -> respuesta. CLARIFY sigue respondiendo directo el reason/askField de policy-agent (no es una escalacion, es pedir un dato). ESCALATE (decision de policy-agent en pre_action), los resultados AUTO que Verify marca pending_confirmation, y los resultados de eligibility_check/dispute_unrecognized_charge que PostActionDecide (policy-agent en stage post_action) marca ESCALATE (score borderline / fraude sospechado / transaccion no encontrada) pasan por escalation-agent para un resumen humano estructurado. dispute_unrecognized_charge reusa el MISMO camino ActTransaction -> Verify -> PostActionDecide que eligibility_check (mismo Lambda transaction-agent, discriminado por intent) -- los 2 estados Pass PreparePostActionEligibility/PreparePostActionDispute arman el Payload plano especifico de cada intent antes de PostActionDecide, para no tener que tocar el contrato de policy-agent/src/handler.ts (que solo sabe leer campos planos a nivel raiz del Payload en stage=post_action).",
   "StartAt": "Understand",
   "States": {
     "Understand": {
@@ -43,7 +43,8 @@
       "Choices": [
         {"Variable": "$.understand.intent", "StringEquals": "product_info", "Next": "ActRetrieval"},
         {"Variable": "$.understand.intent", "StringEquals": "faq", "Next": "ActRetrieval"},
-        {"Variable": "$.understand.intent", "StringEquals": "eligibility_check", "Next": "ActTransaction"}
+        {"Variable": "$.understand.intent", "StringEquals": "eligibility_check", "Next": "ActTransaction"},
+        {"Variable": "$.understand.intent", "StringEquals": "dispute_unrecognized_charge", "Next": "ActTransaction"}
       ],
       "Default": "RespondUnsupportedAuto"
     },
@@ -84,7 +85,8 @@
         "FunctionName": "${verification_agent_lambda_arn}",
         "Payload": {
           "intent.$": "$.understand.intent",
-          "result.$": "$.actResult.data"
+          "result.$": "$.actResult.data",
+          "documentId.$": "$.understand.entities.document_id"
         }
       },
       "ResultPath": "$.verifyResult",
@@ -99,24 +101,49 @@
             {"Variable": "$.verifyResult.Payload.status", "StringEquals": "verified"},
             {"Variable": "$.understand.intent", "StringEquals": "eligibility_check"}
           ],
-          "Next": "PostActionDecide"
+          "Next": "PreparePostActionEligibility"
+        },
+        {
+          "And": [
+            {"Variable": "$.verifyResult.Payload.status", "StringEquals": "verified"},
+            {"Variable": "$.understand.intent", "StringEquals": "dispute_unrecognized_charge"}
+          ],
+          "Next": "PreparePostActionDispute"
         },
         {"Variable": "$.verifyResult.Payload.status", "StringEquals": "verified", "Next": "RespondAuto"}
       ],
       "Default": "EscalateFromVerification"
+    },
+    "PreparePostActionEligibility": {
+      "Type": "Pass",
+      "Parameters": {
+        "stage": "post_action",
+        "caseId.$": "$.verifyResult.Payload.data.caseId",
+        "productType.$": "$.verifyResult.Payload.data.productType",
+        "eligibility_score.$": "$.verifyResult.Payload.data.eligibility_score",
+        "score_zone.$": "$.verifyResult.Payload.data.score_zone"
+      },
+      "ResultPath": "$.postActionPayload",
+      "Next": "PostActionDecide"
+    },
+    "PreparePostActionDispute": {
+      "Type": "Pass",
+      "Parameters": {
+        "stage": "post_action",
+        "caseId.$": "$.verifyResult.Payload.data.caseId",
+        "transactionFound.$": "$.verifyResult.Payload.data.transactionFound",
+        "fraudSuspected.$": "$.verifyResult.Payload.data.fraudSuspected",
+        "productBlocked.$": "$.verifyResult.Payload.data.productBlocked"
+      },
+      "ResultPath": "$.postActionPayload",
+      "Next": "PostActionDecide"
     },
     "PostActionDecide": {
       "Type": "Task",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
         "FunctionName": "${policy_agent_lambda_arn}",
-        "Payload": {
-          "stage": "post_action",
-          "caseId.$": "$.verifyResult.Payload.data.caseId",
-          "productType.$": "$.verifyResult.Payload.data.productType",
-          "eligibility_score.$": "$.verifyResult.Payload.data.eligibility_score",
-          "score_zone.$": "$.verifyResult.Payload.data.score_zone"
-        }
+        "Payload.$": "$.postActionPayload"
       },
       "ResultPath": "$.postActionResult",
       "Catch": [{"ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "OrchestrationFailed"}],
