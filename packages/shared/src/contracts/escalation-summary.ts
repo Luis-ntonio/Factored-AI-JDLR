@@ -100,6 +100,10 @@ export const KNOWN_ENTITIES_KEYS: readonly Exclude<EntityKey, "document_id">[] =
   "document_type",
   "product_type",
   "existing_customer",
+  "disputed_amount",
+  "merchant",
+  "transaction_date",
+  "dispute_reason",
 ];
 
 /**

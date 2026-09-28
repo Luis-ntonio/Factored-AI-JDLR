@@ -15,6 +15,10 @@ export function summarizeKnownEntities(entities: Entities): KnownEntitiesSummary
     document_type: entities.document_type ?? null,
     product_type: entities.product_type ?? null,
     existing_customer: entities.existing_customer ?? null,
+    disputed_amount: entities.disputed_amount ?? null,
+    merchant: entities.merchant ?? null,
+    transaction_date: entities.transaction_date ?? null,
+    dispute_reason: entities.dispute_reason ?? null,
   };
 }
 
@@ -28,5 +32,9 @@ export function emptyKnownEntities(): KnownEntitiesSummary {
     document_type: null,
     product_type: null,
     existing_customer: null,
+    disputed_amount: null,
+    merchant: null,
+    transaction_date: null,
+    dispute_reason: null,
   };
 }

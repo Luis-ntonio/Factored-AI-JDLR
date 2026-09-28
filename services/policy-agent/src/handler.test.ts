@@ -62,6 +62,10 @@ function emptyEntities(): UnderstandOutput["entities"] {
     document_type: null,
     product_type: null,
     existing_customer: null,
+    disputed_amount: null,
+    merchant: null,
+    transaction_date: null,
+    dispute_reason: null,
   };
 }
 
@@ -72,6 +76,7 @@ describe("policy-agent handler (Lambda Task de la Step Function, JSON plano)", (
       intent: "eligibility_check",
       language: "pt",
       entities: {
+        ...emptyEntities(),
         income: 3000,
         employment_status: "employed",
         requested_amount: 8000,

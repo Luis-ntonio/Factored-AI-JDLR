@@ -116,6 +116,10 @@ function emptyEntities(): UnderstandOutput["entities"] {
     document_type: null,
     product_type: null,
     existing_customer: null,
+    disputed_amount: null,
+    merchant: null,
+    transaction_date: null,
+    dispute_reason: null,
   };
 }
 
