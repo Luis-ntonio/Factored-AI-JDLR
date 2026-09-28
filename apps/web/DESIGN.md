@@ -19,6 +19,12 @@ colors:
   gold-premium: "oklch(75% 0.13 85)"
   gold-premium-surface: "oklch(94% 0.05 90)"
 typography:
+  hook:
+    fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"
+    fontSize: "clamp(1.5rem, 4vw, 2.25rem)"
+    fontWeight: 700
+    lineHeight: 1.2
+    letterSpacing: "-0.01em"
   display:
     fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"
     fontSize: "16px"
@@ -158,6 +164,13 @@ la tipografía. Si en el futuro este widget se convierte en un producto de
 página completa, reconsiderar.
 
 ### Hierarchy
+- **Hook** (700, `clamp(1.5rem, 4vw, 2.25rem)`, 1.2, -0.01em): rol nuevo,
+  agregado con la vidriera de productos (`ProductShowcase.tsx`) — el único
+  lugar del sistema que es una superficie Persuade (el visitante decide y
+  actúa) en vez de Operate como el resto del widget. Mismo stack nativo,
+  ningún tamaño fijo de página completa (sigue The Native Font Rule) — solo
+  más grande que Título porque tiene que funcionar como headline de página,
+  no de header de panel angosto.
 - **Título** (700, 16px, 1.3): nombre del widget en el header del chat.
 - **Cuerpo** (400, 14px, 1.5): texto de mensajes y tarjetas de contenido.
 - **Label** (700, 11px, 1.2, +0.02em, uppercase donde aplica): badges de
@@ -165,6 +178,12 @@ página completa, reconsiderar.
   tarjeta de escalación).
 - **Meta** (400, 10-11px): timestamps, caseId — siempre en Tinta Muted, nunca
   compitiendo con el cuerpo del mensaje.
+
+Nota de honestidad (no reparada acá, fuera de alcance de este cambio): el
+resto de la hoja de estilos usa varios tamaños intermedios (12/13/15/17/18px,
+etc.) para badges/botones/metadata que nunca se formalizaron como pasos de
+esta escala — deuda preexistente de documentación, no algo introducido por
+la vidriera de productos. `impeccable detect` la reporta como advisory.
 
 ## Layout
 
@@ -272,6 +291,18 @@ apertura/cierre animada (`opacity` + `transform: scale/translateY`, nunca un
 corte duro de `display: none` a `block`), con
 `@media (prefers-reduced-motion: reduce)` reduciendo a un crossfade sin
 transform.
+
+### Vidriera de productos (`ProductShowcase.tsx`, app-shell)
+Única superficie Persuade del sistema — el resto es Operate. Hook (rol
+tipográfico nuevo, ver Typography) centrado arriba, grid de tarjetas de
+producto abajo (`repeat(auto-fit, minmax(380px, 1fr))`, 2 columnas parejas
+en desktop dentro del `max-width: 1040px` del contenedor, 1 columna en
+mobile). Cada tarjeta hereda el vocabulario de Cards/Containers de arriba
+(plana, Borde Sutil, `12px`) — nada nuevo ahí, solo contenido nuevo
+(nombre, tasa, monto, ingreso mínimo como una lista `dl` de hechos) y un
+botón "Lo quiero" que es exactamente un Button Primary. **The One Action
+Rule sigue aplicando acá**: "Lo quiero" es la única acción de cada tarjeta,
+terracota, sin competir con ningún otro color de acción en la página.
 
 ## Do's and Don'ts
 
