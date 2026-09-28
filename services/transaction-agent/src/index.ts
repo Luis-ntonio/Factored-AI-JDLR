@@ -1,13 +1,19 @@
 import * as path from "node:path";
 import type { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from "aws-lambda";
-import type { EligibilityResult, UnderstandOutput } from "@banking-agent/shared";
+import type { DisputeVerificationResult, EligibilityResult, UnderstandOutput } from "@banking-agent/shared";
 import { isUnderstandOutput } from "@banking-agent/shared";
 import { computeEligibility, EligibilityUnavailableError } from "./compute-eligibility";
+import { computeDisputeVerification, DisputeUnavailableError } from "./compute-dispute";
 import { loadBorderlineThresholds } from "./config/load-thresholds";
 import { buildDocClientFromEnv, DynamoDbEligibilityStore } from "./store/eligibility-store";
+import { DynamoDbDisputeStore } from "./store/dispute-store";
 import type { EligibilityStore } from "./store/types";
+import type { DisputeStore } from "./store/dispute-store-types";
+import { StaticTransactionRepository } from "./repository/static-transaction-repository";
+import type { TransactionRepository } from "./repository/types";
 
 export { computeEligibility, EligibilityUnavailableError } from "./compute-eligibility";
+export { computeDisputeVerification, DisputeUnavailableError } from "./compute-dispute";
 export * from "./scoring/compute-score";
 export * from "./scoring/score-zone";
 export * from "./config/load-thresholds";
@@ -15,41 +21,53 @@ export * from "./store";
 
 // --- Flujo NUEVO y aditivo: transaction-dispute intake --------------------
 // (ver hacka-info/EDA_LATAM_Bank_resumen.md). Repositorio de solo LECTURA
-// contra el "core bancario" simulado (clientes/productos/transacciones),
-// para que un futuro Lambda de Act (fuera del alcance de este checkpoint)
-// identifique la transacción disputada y los productos/tarjetas del
-// cliente. No interfiere con el flujo de elegibilidad de arriba.
+// contra el "core bancario" simulado (clientes/productos/transacciones), ya
+// CONECTADO a la capa Act vía `computeDisputeVerification` + la rama
+// `dispute_unrecognized_charge` del handler de abajo. No interfiere con el
+// flujo de elegibilidad de arriba.
 export * from "./data/mock-core-banking";
 export * from "./repository";
 
 /**
- * Handler de Lambda para la parte transaccional de la capa "Act"
- * (cálculo de elegibilidad, `intent: eligibility_check`). NO conectado a
- * API Gateway/Terraform en este checkpoint (mismo criterio que
- * conversation-agent/policy-agent/retrieval-agent).
+ * Handler de Lambda para la parte transaccional de la capa "Act". Discrimina
+ * por `input.intent`, mismo criterio que policy-agent discrimina por
+ * `stage`, en vez de ser un servicio nuevo:
+ *
+ *  - `intent: eligibility_check` -> cálculo de elegibilidad
+ *    (`computeEligibility`), sin cambios respecto de checkpoints previos.
+ *  - `intent: dispute_unrecognized_charge` -> verificación de disputa de
+ *    cargo (`computeDisputeVerification`), flujo NUEVO y aditivo (ver
+ *    `./compute-dispute.ts`).
+ *
+ * NO conectado a API Gateway/Terraform en este checkpoint (mismo criterio
+ * que conversation-agent/policy-agent/retrieval-agent).
  *
  * Body esperado (JSON): un `UnderstandOutput` completo (contrato de
- * `@banking-agent/shared`), con `intent === "eligibility_check"`, tal como
- * lo produce conversation-agent y ya evaluado por policy-agent. Este
- * handler NO vuelve a evaluar `policies.yaml` -- asume que quien lo invoca
- * ya obtuvo `decision === "AUTO"` de `evaluatePreAction` (ver limitación de
- * orquestación en README.md: hoy esa garantía es un contrato probado por
- * test, no forzado en runtime -- mismo criterio que retrieval-agent).
+ * `@banking-agent/shared`), con `intent` en uno de los dos valores de
+ * arriba, tal como lo produce conversation-agent y ya evaluado por
+ * policy-agent. Este handler NO vuelve a evaluar `policies.yaml` -- asume
+ * que quien lo invoca ya obtuvo `decision === "AUTO"` de `evaluatePreAction`
+ * (ver limitación de orquestación en README.md: hoy esa garantía es un
+ * contrato probado por test, no forzado en runtime -- mismo criterio que
+ * retrieval-agent).
  *
  * Variables de entorno:
  *  - CASE_STORE_TABLE_NAME: nombre de la tabla DynamoDB real, default
- *    "banking-agent-dev-case-store".
+ *    "banking-agent-dev-case-store" (MISMA tabla para elegibilidad y
+ *    disputa, distintas `sk`).
  *  - POLICY_FILE_PATH: ruta absoluta a `policies.yaml`, default resuelto
- *    relativo a este archivo (raíz del monorepo).
+ *    relativo a este archivo (raíz del monorepo). Solo la usa el camino de
+ *    `eligibility_check`.
  *  - AWS_REGION: la inyecta Lambda automáticamente.
  *
  * Reliability: este handler NUNCA devuelve un 5xx -- cualquier excepción
- * (body malformado, `EligibilityUnavailableError` por fallo del backend
- * simulado tras agotar reintentos, o cualquier otro error no anticipado) se
- * atrapa y se responde igual con un envelope `{ status, ... }` válido,
- * `statusCode: 200`, mismo patrón que conversation-agent/retrieval-agent.
- * NUNCA se fabrica un `EligibilityResult` de reemplazo cuando el cálculo no
- * pudo confirmarse -- ver `compute-eligibility.ts`.
+ * (body malformado, `EligibilityUnavailableError`/`DisputeUnavailableError`
+ * por fallo del backend simulado tras agotar reintentos, o cualquier otro
+ * error no anticipado) se atrapa y se responde igual con un envelope
+ * `{ status, ... }` válido, `statusCode: 200`, mismo patrón que
+ * conversation-agent/retrieval-agent. NUNCA se fabrica un `EligibilityResult`
+ * ni un `DisputeVerificationResult` de reemplazo cuando el cálculo no pudo
+ * confirmarse -- ver `compute-eligibility.ts`/`compute-dispute.ts`.
  */
 
 export interface EligibilityHandlerResponse {
@@ -61,8 +79,22 @@ export interface EligibilityHandlerResponse {
   reason?: string;
 }
 
+/** Mismo shape que `EligibilityHandlerResponse`, para el camino
+ * `dispute_unrecognized_charge`. Se mantiene como interfaz separada (en vez
+ * de generalizar con un genérico) para no tocar el contrato ya probado de
+ * `EligibilityHandlerResponse`. */
+export interface DisputeHandlerResponse {
+  status: "ok" | "unavailable" | "rejected";
+  result?: DisputeVerificationResult;
+  /** Motivo cuando `status !== "ok"` -- nunca incluye datos crudos de
+   * `entities` (evita fuga de PII vía `document_id`). */
+  reason?: string;
+}
+
 let cachedStore: EligibilityStore | null = null;
 let cachedThresholds: { min: number; max: number } | null = null;
+let cachedDisputeStore: DisputeStore | null = null;
+let cachedRepository: TransactionRepository | null = null;
 
 function getStore(): EligibilityStore {
   if (cachedStore) return cachedStore;
@@ -81,6 +113,28 @@ function getThresholds(): { min: number; max: number } {
   return cachedThresholds;
 }
 
+/** Store de disputa, MISMA tabla real que `getStore()` (mismo
+ * `CASE_STORE_TABLE_NAME`, distinta `sk`) -- no hay variable de entorno
+ * nueva ni cambio de IAM (ver docstring de cabecera de este archivo). */
+function getDisputeStore(): DisputeStore {
+  if (cachedDisputeStore) return cachedDisputeStore;
+  const tableName = process.env.CASE_STORE_TABLE_NAME ?? "banking-agent-dev-case-store";
+  cachedDisputeStore = new DynamoDbDisputeStore({
+    tableName,
+    docClient: buildDocClientFromEnv(process.env.AWS_REGION),
+  });
+  return cachedDisputeStore;
+}
+
+/** Instancia cacheada de `StaticTransactionRepository` -- 100% en memoria,
+ * sin variable de entorno nueva (ver docstring de cabecera de este
+ * archivo). */
+function getRepository(): TransactionRepository {
+  if (cachedRepository) return cachedRepository;
+  cachedRepository = new StaticTransactionRepository();
+  return cachedRepository;
+}
+
 function parseBody(event: APIGatewayProxyEventV2): UnderstandOutput {
   if (!event.body) {
     throw new Error("body vacío");
@@ -93,7 +147,7 @@ function parseBody(event: APIGatewayProxyEventV2): UnderstandOutput {
   return parsed;
 }
 
-function respond(body: EligibilityHandlerResponse): APIGatewayProxyResultV2 {
+function respond(body: EligibilityHandlerResponse | DisputeHandlerResponse): APIGatewayProxyResultV2 {
   return {
     statusCode: 200,
     headers: { "content-type": "application/json" },
@@ -105,37 +159,58 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
   try {
     const input = parseBody(event);
 
-    // Rechazo defensivo: transaction-agent SOLO actúa sobre eligibility_check
-    // ya autorizado AUTO por policy-agent (ver docstring de este archivo).
+    // Rechazo defensivo: transaction-agent SOLO actúa sobre los dos intents
+    // ya autorizados AUTO por policy-agent (ver docstring de este archivo).
     // No hay orquestador real todavía que impida esta llamada en runtime
     // (misma limitación que retrieval-agent) -- esta es la última línea de
     // defensa en código, no un chequeo redundante de `policies.yaml`.
-    if (input.intent !== "eligibility_check") {
-      return respond({
-        status: "rejected",
-        reason: `intent "${input.intent}" no corresponde a transaction-agent (solo eligibility_check)`,
-      });
+    if (input.intent === "eligibility_check") {
+      if (input.entities.product_type === null) {
+        return respond({ status: "rejected", reason: "entities.product_type ausente" });
+      }
+
+      const store = getStore();
+      const thresholds = getThresholds();
+
+      const result = await computeEligibility(
+        {
+          caseId: input.context.caseId,
+          turnId: input.context.turnId,
+          productType: input.entities.product_type,
+          entities: input.entities,
+        },
+        { store, thresholds }
+      );
+
+      return respond({ status: "ok", result });
     }
-    if (input.entities.product_type === null) {
-      return respond({ status: "rejected", reason: "entities.product_type ausente" });
+
+    if (input.intent === "dispute_unrecognized_charge") {
+      if (input.entities.document_id === null) {
+        return respond({ status: "rejected", reason: "entities.document_id ausente" });
+      }
+
+      const disputeStore = getDisputeStore();
+      const repository = getRepository();
+
+      const result = await computeDisputeVerification(
+        {
+          caseId: input.context.caseId,
+          turnId: input.context.turnId,
+          entities: input.entities,
+        },
+        { store: disputeStore, repository }
+      );
+
+      return respond({ status: "ok", result });
     }
 
-    const store = getStore();
-    const thresholds = getThresholds();
-
-    const result = await computeEligibility(
-      {
-        caseId: input.context.caseId,
-        turnId: input.context.turnId,
-        productType: input.entities.product_type,
-        entities: input.entities,
-      },
-      { store, thresholds }
-    );
-
-    return respond({ status: "ok", result });
+    return respond({
+      status: "rejected",
+      reason: `intent "${input.intent}" no corresponde a transaction-agent (solo eligibility_check/dispute_unrecognized_charge)`,
+    });
   } catch (error) {
-    if (error instanceof EligibilityUnavailableError) {
+    if (error instanceof EligibilityUnavailableError || error instanceof DisputeUnavailableError) {
       // eslint-disable-next-line no-console
       console.error("transaction-agent: backend simulado no disponible", {
         reason: error.reason,
