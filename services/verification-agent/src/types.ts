@@ -1,4 +1,4 @@
-import type { EligibilityResult, RetrievalResult } from "@banking-agent/shared";
+import type { DisputeVerificationResult, EligibilityResult, RetrievalResult } from "@banking-agent/shared";
 
 /**
  * Input Task-a-Task esperado por verification-agent dentro de la Step
@@ -8,7 +8,7 @@ import type { EligibilityResult, RetrievalResult } from "@banking-agent/shared";
  * retrieval-agent o transaction-agent para ese intent.
  */
 export interface VerificationInput {
-  intent: "product_info" | "faq" | "eligibility_check";
+  intent: "product_info" | "faq" | "eligibility_check" | "dispute_unrecognized_charge";
   /**
    * - `intent` en `"product_info"`/`"faq"`: un `RetrievalResult`
    *   (`@banking-agent/shared`) tal cual lo devuelve el body de
@@ -17,8 +17,22 @@ export interface VerificationInput {
    *   COMPLETO tal cual lo devuelve el body de transaction-agent (ver
    *   `EligibilityHandlerResponseLike` abajo) -- el `EligibilityResult` real
    *   vive adentro de `result.result`, solo si `result.status === "ok"`.
+   * - `intent === "dispute_unrecognized_charge"`: el `DisputeHandlerResponse`
+   *   COMPLETO tal cual lo devuelve el body de transaction-agent (ver
+   *   `DisputeHandlerResponseLike` abajo) -- el `DisputeVerificationResult`
+   *   real vive adentro de `result.result`, solo si `result.status === "ok"`.
    */
   result: unknown;
+  /**
+   * `entities.document_id` del turno, tal cual lo resolvió conversation-agent
+   * (ver `UnderstandOutput.entities`, `@banking-agent/shared`). Solo lo puebla
+   * la Step Function para `intent === "dispute_unrecognized_charge"` -- es lo
+   * mínimo necesario para que verification-agent pueda re-derivar el cliente
+   * de forma independiente (`CUSTOMERS.find(...)`, ver `./verify.ts`) sin
+   * recibir el objeto `entities` completo (minimiza PII en tránsito hacia este
+   * servicio). Ausente/`null`/`undefined` para el resto de los intents.
+   */
+  documentId?: string | null;
 }
 
 /**
@@ -36,5 +50,20 @@ export interface EligibilityHandlerResponseLike {
   reason?: string;
 }
 
+/**
+ * Mirror LOCAL (no importado) de `DisputeHandlerResponse`
+ * (`services/transaction-agent/src/index.ts`), MISMO criterio que
+ * `EligibilityHandlerResponseLike` de arriba -- solo se copia el shape del
+ * envoltorio `{status, result, reason}`. El `DisputeVerificationResult` en sí
+ * SÍ se importa de `@banking-agent/shared` (es un contrato compartido
+ * confirmado, no un tipo interno de transaction-agent), mismo criterio que
+ * `EligibilityResult`.
+ */
+export interface DisputeHandlerResponseLike {
+  status: "ok" | "unavailable" | "rejected";
+  result?: DisputeVerificationResult;
+  reason?: string;
+}
+
 /** Re-exportado por conveniencia para quien importe solo desde `./types`. */
-export type { EligibilityResult, RetrievalResult };
+export type { DisputeVerificationResult, EligibilityResult, RetrievalResult };

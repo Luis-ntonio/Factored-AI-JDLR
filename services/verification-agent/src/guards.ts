@@ -1,5 +1,5 @@
-import type { EligibilityResult, RetrievalResult } from "@banking-agent/shared";
-import type { EligibilityHandlerResponseLike } from "./types";
+import type { DisputeVerificationResult, EligibilityResult, RetrievalResult } from "@banking-agent/shared";
+import type { DisputeHandlerResponseLike, EligibilityHandlerResponseLike } from "./types";
 
 /**
  * Type guards mínimos, sin dependencias externas -- mismo criterio que
@@ -29,6 +29,23 @@ export function isEligibilityResultShape(value: unknown): value is EligibilityRe
   if (v.score_zone !== "approved" && v.score_zone !== "borderline" && v.score_zone !== "declined") {
     return false;
   }
+  return true;
+}
+
+export function isDisputeHandlerResponseLike(value: unknown): value is DisputeHandlerResponseLike {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return v.status === "ok" || v.status === "unavailable" || v.status === "rejected";
+}
+
+export function isDisputeVerificationResultShape(value: unknown): value is DisputeVerificationResult {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  if (typeof v.caseId !== "string") return false;
+  if (typeof v.transactionFound !== "boolean") return false;
+  if (typeof v.fraudSuspected !== "boolean") return false;
+  if (typeof v.productBlocked !== "boolean") return false;
+  if (v.transactionId !== undefined && typeof v.transactionId !== "string") return false;
   return true;
 }
 

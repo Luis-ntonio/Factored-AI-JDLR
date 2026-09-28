@@ -1,8 +1,11 @@
 import type { VerificationResult } from "@banking-agent/shared";
+import { CUSTOMERS, TRANSACTIONS } from "@banking-agent/transaction-agent/dist/data/mock-core-banking";
 import type { BorderlineThresholds } from "./config/load-thresholds";
 import {
   hasValidFaqSources,
   hasValidProductSource,
+  isDisputeHandlerResponseLike,
+  isDisputeVerificationResultShape,
   isEligibilityHandlerResponseLike,
   isEligibilityResultShape,
   isRetrievalResultShape,
@@ -51,6 +54,8 @@ export function verifyResult(input: unknown, getThresholds: () => BorderlineThre
     case "product_info":
     case "faq":
       return verifyRetrieval(candidate.intent, candidate.result);
+    case "dispute_unrecognized_charge":
+      return verifyDispute(candidate.result, candidate.documentId);
     default:
       return pendingConfirmation(
         `intent "${String(candidate.intent)}" no reconocido por verification-agent`,
@@ -139,6 +144,109 @@ function verifyRetrieval(intent: "product_info" | "faq", rawResult: unknown): Ve
     );
   }
   return verified(rawResult);
+}
+
+/**
+ * Segunda verificación INDEPENDIENTE del resultado de transaction-agent para
+ * `dispute_unrecognized_charge` (`DisputeVerificationResult`,
+ * `@banking-agent/shared`). Dos chequeos, ninguno un passthrough:
+ *
+ * 1. Invariante lógico `productBlocked === (transactionFound &&
+ *    !fraudSuspected)` -- la regla que transaction-agent aplica internamente
+ *    para decidir si "actuó" (ver `services/transaction-agent/src/compute-dispute.ts`).
+ *    Si no coincide, es un bug interno del Act -> `pending_confirmation`. No
+ *    requiere releer nada: es consistencia interna del propio resultado.
+ *
+ * 2. Re-verificación de OWNERSHIP independiente contra el mismo mock de core
+ *    bancario que usó transaction-agent (`CUSTOMERS`/`TRANSACTIONS`,
+ *    `@banking-agent/transaction-agent/dist/data/mock-core-banking`) --
+ *    NUNCA se confía ciegamente en que la `transactionId` reportada
+ *    pertenece al cliente que disputó el cargo, ni en que `fraudSuspected`
+ *    coincide con `Transaction.is_fraud` real. Solo aplica cuando
+ *    `transactionFound === true` (con `false` no hay nada más que
+ *    re-derivar: es una señal honesta de "no encontrado").
+ *
+ * Deliberadamente NO se requiere acceso nuevo a DynamoDB para confirmar que
+ * el bloqueo se "persistió": en este mock la persistencia del Act está
+ * representada por el propio `DisputeVerificationResult`, así que el
+ * invariante lógico del punto 1 ES la verificación de esa persistencia (mismo
+ * principio ya aplicado a `verifyEligibilityCheck`, que tampoco relee
+ * DynamoDB). Ver decisión de arquitectura documentada en
+ * `services/verification-agent/package.json` (dependencia hacia
+ * `@banking-agent/transaction-agent` limitada al subpath de datos puros, sin
+ * arrastrar el AWS SDK).
+ */
+function verifyDispute(rawResult: unknown, documentId: string | null | undefined): VerificationResult {
+  if (!isDisputeHandlerResponseLike(rawResult)) {
+    return pendingConfirmation(
+      "el body de transaction-agent no tiene la forma esperada de DisputeHandlerResponse",
+      rawResult ?? null
+    );
+  }
+
+  if (rawResult.status !== "ok") {
+    return pendingConfirmation(
+      `transaction-agent no reportó un resultado exitoso (status: "${rawResult.status}")` +
+        (rawResult.reason ? `, reason: "${rawResult.reason}"` : ""),
+      rawResult
+    );
+  }
+
+  if (!isDisputeVerificationResultShape(rawResult.result)) {
+    return pendingConfirmation(
+      'transaction-agent reportó status "ok" pero "result" no tiene la forma de DisputeVerificationResult',
+      rawResult
+    );
+  }
+
+  const dispute = rawResult.result;
+
+  // Invariante: productBlocked debe coincidir exactamente con
+  // (transactionFound && !fraudSuspected).
+  const expectedBlocked = dispute.transactionFound && !dispute.fraudSuspected;
+  if (dispute.productBlocked !== expectedBlocked) {
+    return pendingConfirmation(
+      `productBlocked (${dispute.productBlocked}) inconsistente con transactionFound/fraudSuspected reportados`,
+      dispute
+    );
+  }
+
+  if (!dispute.transactionFound) {
+    // Negativo honesto -- sin merchant/amount/date acá no hay nada más que
+    // re-derivar.
+    return verified(dispute);
+  }
+
+  // transactionFound === true: re-verificar ownership/fraude de forma
+  // INDEPENDIENTE contra el core bancario simulado, sin confiar en lo que ya
+  // afirmó el Act.
+  if (!dispute.transactionId) {
+    return pendingConfirmation("transactionFound=true pero sin transactionId", dispute);
+  }
+
+  if (!documentId) {
+    return pendingConfirmation("falta documentId para re-verificar ownership de forma independiente", dispute);
+  }
+
+  const customer = CUSTOMERS.find((c) => c.document_number === documentId);
+  if (!customer) {
+    return pendingConfirmation("no se pudo re-derivar el cliente a partir de documentId", dispute);
+  }
+
+  const transaction = TRANSACTIONS.find((t) => t.transaction_id === dispute.transactionId);
+  if (!transaction) {
+    return pendingConfirmation("la transacción reportada por el Act no existe en el core bancario", dispute);
+  }
+
+  if (transaction.customer_id !== customer.customer_id) {
+    return pendingConfirmation("la transacción reportada no pertenece al cliente (ownership mismatch)", dispute);
+  }
+
+  if (transaction.is_fraud !== dispute.fraudSuspected) {
+    return pendingConfirmation("fraudSuspected no coincide con is_fraud real de la transacción", dispute);
+  }
+
+  return verified(dispute);
 }
 
 function verified<T>(data: T): VerificationResult<T> {

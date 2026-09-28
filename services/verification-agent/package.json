@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@banking-agent/shared": "0.1.0",
+    "@banking-agent/transaction-agent": "0.1.0",
     "js-yaml": "^4.1.0"
   },
   "devDependencies": {

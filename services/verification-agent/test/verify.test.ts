@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
-import type { EligibilityResult, RetrievalResult } from "@banking-agent/shared";
+import type { DisputeVerificationResult, EligibilityResult, RetrievalResult } from "@banking-agent/shared";
 import { verifyResult } from "../src/verify";
-import type { EligibilityHandlerResponseLike, VerificationInput } from "../src/types";
+import type { DisputeHandlerResponseLike, EligibilityHandlerResponseLike, VerificationInput } from "../src/types";
+
+// Documentos/IDs reales del mock de core bancario
+// (`services/transaction-agent/src/data/mock-core-banking.ts`) -- misma
+// fuente que usa `verifyDispute` para la re-verificación independiente de
+// ownership, así los tests ejercitan el camino real, no un doble mock.
+const MARIA_DOCUMENT_ID = "LOTM900101MDFPRR09"; // CUST-0001
+const CARLOS_TXN_NOT_MARIAS = "TXN-000007"; // pertenece a CUST-0002 (Carlos)
 
 // Umbrales idénticos a los reales de policies.yaml (config.borderline_score_min:
 // 55, config.borderline_score_max: 70) -- ver test/load-thresholds.test.ts
@@ -26,6 +33,20 @@ function eligibilityHandlerResponse(
 
 function retrievalResult(overrides: Partial<RetrievalResult> = {}): RetrievalResult {
   return { intent: "product_info", language: "es", found: true, ...overrides };
+}
+
+function disputeResult(overrides: Partial<DisputeVerificationResult> = {}): DisputeVerificationResult {
+  return {
+    caseId: "case-1",
+    transactionFound: false,
+    fraudSuspected: false,
+    productBlocked: false,
+    ...overrides,
+  };
+}
+
+function disputeHandlerResponse(overrides: Partial<DisputeHandlerResponseLike> = {}): DisputeHandlerResponseLike {
+  return { status: "ok", result: disputeResult(), ...overrides };
 }
 
 describe("verifyResult -- eligibility_check", () => {
@@ -224,6 +245,222 @@ describe("verifyResult -- product_info / faq", () => {
     const input: VerificationInput = { intent: "product_info", result: { foo: "bar" } };
     const out = verifyResult(input, () => THRESHOLDS);
     expect(out.status).toBe("pending_confirmation");
+  });
+});
+
+describe("verifyResult -- dispute_unrecognized_charge", () => {
+  it('pending_confirmation cuando transaction-agent reportó status !== "ok"', () => {
+    const input: VerificationInput = {
+      intent: "dispute_unrecognized_charge",
+      result: disputeHandlerResponse({ status: "unavailable", result: undefined, reason: "dynamodb_write_failed" }),
+      documentId: MARIA_DOCUMENT_ID,
+    };
+    const out = verifyResult(input, () => THRESHOLDS);
+    expect(out.status).toBe("pending_confirmation");
+    expect(out.verified).toBe(false);
+    expect(out.reason).toMatch(/unavailable/);
+  });
+
+  it('pending_confirmation cuando "result" no tiene forma de DisputeVerificationResult', () => {
+    const input: VerificationInput = {
+      intent: "dispute_unrecognized_charge",
+      result: { status: "ok", result: { caseId: "case-1" } },
+      documentId: MARIA_DOCUMENT_ID,
+    };
+    const out = verifyResult(input, () => THRESHOLDS);
+    expect(out.status).toBe("pending_confirmation");
+  });
+
+  it("pending_confirmation cuando el body no tiene ni la forma mínima de DisputeHandlerResponse", () => {
+    const input: VerificationInput = {
+      intent: "dispute_unrecognized_charge",
+      result: { foo: "bar" },
+      documentId: MARIA_DOCUMENT_ID,
+    };
+    const out = verifyResult(input, () => THRESHOLDS);
+    expect(out.status).toBe("pending_confirmation");
+  });
+
+  it("pending_confirmation cuando productBlocked es inconsistente con transactionFound/fraudSuspected (debió bloquear y no lo hizo)", () => {
+    const input: VerificationInput = {
+      intent: "dispute_unrecognized_charge",
+      result: disputeHandlerResponse({
+        result: disputeResult({
+          transactionFound: true,
+          transactionId: "TXN-000001",
+          fraudSuspected: false,
+          productBlocked: false,
+        }),
+      }),
+      documentId: MARIA_DOCUMENT_ID,
+    };
+    const out = verifyResult(input, () => THRESHOLDS);
+    expect(out.status).toBe("pending_confirmation");
+    expect(out.verified).toBe(false);
+    expect(out.reason).toMatch(/productBlocked/);
+  });
+
+  it("verifica un negativo honesto (transactionFound: false) sin necesitar documentId", () => {
+    const input: VerificationInput = {
+      intent: "dispute_unrecognized_charge",
+      result: disputeHandlerResponse({
+        result: disputeResult({ transactionFound: false, fraudSuspected: false, productBlocked: false }),
+      }),
+    };
+    const out = verifyResult(input, () => THRESHOLDS);
+    expect(out.status).toBe("verified");
+    expect(out.verified).toBe(true);
+  });
+
+  it("verifica el caso feliz real: TXN-000001 (Amazon MX, María, sin fraude) bloqueada correctamente", () => {
+    const input: VerificationInput = {
+      intent: "dispute_unrecognized_charge",
+      result: disputeHandlerResponse({
+        result: disputeResult({
+          transactionFound: true,
+          transactionId: "TXN-000001",
+          fraudSuspected: false,
+          productBlocked: true,
+        }),
+      }),
+      documentId: MARIA_DOCUMENT_ID,
+    };
+    const out = verifyResult(input, () => THRESHOLDS);
+    expect(out.status).toBe("verified");
+    expect(out.verified).toBe(true);
+  });
+
+  it("verifica el caso de fraude real: TXN-000003 (Miami, María, is_fraud=true) reportado correctamente sin bloqueo automático", () => {
+    const input: VerificationInput = {
+      intent: "dispute_unrecognized_charge",
+      result: disputeHandlerResponse({
+        result: disputeResult({
+          transactionFound: true,
+          transactionId: "TXN-000003",
+          fraudSuspected: true,
+          productBlocked: false,
+        }),
+      }),
+      documentId: MARIA_DOCUMENT_ID,
+    };
+    const out = verifyResult(input, () => THRESHOLDS);
+    expect(out.status).toBe("verified");
+    expect(out.verified).toBe(true);
+  });
+
+  it("pending_confirmation ante ownership mismatch real: TXN-000007 pertenece a Carlos, no a María", () => {
+    const input: VerificationInput = {
+      intent: "dispute_unrecognized_charge",
+      result: disputeHandlerResponse({
+        result: disputeResult({
+          transactionFound: true,
+          transactionId: CARLOS_TXN_NOT_MARIAS,
+          fraudSuspected: false,
+          productBlocked: true,
+        }),
+      }),
+      documentId: MARIA_DOCUMENT_ID,
+    };
+    const out = verifyResult(input, () => THRESHOLDS);
+    expect(out.status).toBe("pending_confirmation");
+    expect(out.verified).toBe(false);
+    expect(out.reason).toMatch(/ownership/);
+  });
+
+  it("pending_confirmation cuando fraudSuspected no coincide con is_fraud real (TXN-000003 SÍ es fraude real)", () => {
+    const input: VerificationInput = {
+      intent: "dispute_unrecognized_charge",
+      result: disputeHandlerResponse({
+        result: disputeResult({
+          transactionFound: true,
+          transactionId: "TXN-000003",
+          fraudSuspected: false,
+          productBlocked: true,
+        }),
+      }),
+      documentId: MARIA_DOCUMENT_ID,
+    };
+    const out = verifyResult(input, () => THRESHOLDS);
+    expect(out.status).toBe("pending_confirmation");
+    expect(out.reason).toMatch(/is_fraud/);
+  });
+
+  it("pending_confirmation cuando falta documentId y transactionFound = true", () => {
+    const input: VerificationInput = {
+      intent: "dispute_unrecognized_charge",
+      result: disputeHandlerResponse({
+        result: disputeResult({
+          transactionFound: true,
+          transactionId: "TXN-000001",
+          fraudSuspected: false,
+          productBlocked: true,
+        }),
+      }),
+    };
+    const out = verifyResult(input, () => THRESHOLDS);
+    expect(out.status).toBe("pending_confirmation");
+    expect(out.reason).toMatch(/documentId/);
+  });
+
+  it("pending_confirmation cuando documentId no corresponde a ningún cliente del mock", () => {
+    const input: VerificationInput = {
+      intent: "dispute_unrecognized_charge",
+      result: disputeHandlerResponse({
+        result: disputeResult({
+          transactionFound: true,
+          transactionId: "TXN-000001",
+          fraudSuspected: false,
+          productBlocked: true,
+        }),
+      }),
+      documentId: "DOCUMENTO-INEXISTENTE",
+    };
+    const out = verifyResult(input, () => THRESHOLDS);
+    expect(out.status).toBe("pending_confirmation");
+    expect(out.reason).toMatch(/cliente/);
+  });
+
+  it("pending_confirmation cuando transactionId no existe en el core bancario", () => {
+    const input: VerificationInput = {
+      intent: "dispute_unrecognized_charge",
+      result: disputeHandlerResponse({
+        result: disputeResult({
+          transactionFound: true,
+          transactionId: "TXN-999999",
+          fraudSuspected: false,
+          productBlocked: true,
+        }),
+      }),
+      documentId: MARIA_DOCUMENT_ID,
+    };
+    const out = verifyResult(input, () => THRESHOLDS);
+    expect(out.status).toBe("pending_confirmation");
+    expect(out.reason).toMatch(/no existe/);
+  });
+
+  it("pending_confirmation cuando transactionFound = true pero sin transactionId", () => {
+    const input: VerificationInput = {
+      intent: "dispute_unrecognized_charge",
+      result: disputeHandlerResponse({
+        result: disputeResult({ transactionFound: true, transactionId: undefined, fraudSuspected: false, productBlocked: true }),
+      }),
+      documentId: MARIA_DOCUMENT_ID,
+    };
+    const out = verifyResult(input, () => THRESHOLDS);
+    expect(out.status).toBe("pending_confirmation");
+    expect(out.reason).toMatch(/transactionId/);
+  });
+
+  it("NO invoca getThresholds() para dispute_unrecognized_charge (no depende de policies.yaml)", () => {
+    const explosiveThresholds = () => {
+      throw new Error("policies.yaml no debería leerse para este intent");
+    };
+    const input: VerificationInput = {
+      intent: "dispute_unrecognized_charge",
+      result: disputeHandlerResponse({ result: disputeResult({ transactionFound: false }) }),
+    };
+    expect(() => verifyResult(input, explosiveThresholds)).not.toThrow();
+    expect(verifyResult(input, explosiveThresholds).status).toBe("verified");
   });
 });
 
