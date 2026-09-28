@@ -140,6 +140,41 @@ describe("proposeModelDecision", () => {
     expect(result).toBeNull();
   });
 
+  it("propaga tokenUsage real de response.usage -- usado por scripts/evaluate-decide-stage.ts para costo real", async () => {
+    const send = vi.fn().mockResolvedValue({
+      output: {
+        message: {
+          role: "assistant",
+          content: [
+            { toolUse: { toolUseId: "t1", name: "propose_policy_decision", input: { decision: "AUTO", confidence: 0.8, reasoning: "ok" } } },
+          ],
+        },
+      },
+      stopReason: "tool_use",
+      usage: { inputTokens: 123, outputTokens: 45, totalTokens: 168 },
+    } as unknown as ConverseCommandOutput);
+
+    const result = await proposeModelDecision(sampleUnderstandOutput(), "pre_action", {
+      bedrockClient: { send },
+      modelId: "fake-model",
+    });
+
+    expect(result?.tokenUsage).toEqual({ inputTokens: 123, outputTokens: 45 });
+  });
+
+  it("tokenUsage queda undefined si la respuesta no trae usage (nunca inventa números)", async () => {
+    const send = vi.fn().mockResolvedValue(
+      toolUseResponse({ decision: "AUTO", confidence: 0.8, reasoning: "ok" })
+    );
+
+    const result = await proposeModelDecision(sampleUnderstandOutput(), "pre_action", {
+      bedrockClient: { send },
+      modelId: "fake-model",
+    });
+
+    expect(result?.tokenUsage).toBeUndefined();
+  });
+
   it("clampea confidence fuera de [0,1] y usa string vacío si falta reasoning", async () => {
     const send = vi.fn().mockResolvedValue(toolUseResponse({ decision: "ESCALATE", confidence: 5 }));
 

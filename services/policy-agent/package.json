@@ -6,8 +6,9 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "test": "vitest run"
+    "build": "tsc -p tsconfig.json && tsc -p tsconfig.scripts.json",
+    "test": "vitest run",
+    "evaluate:decide-stage": "node dist/scripts/evaluate-decide-stage.js"
   },
   "dependencies": {
     "@aws-sdk/client-bedrock-runtime": "^3.665.0",

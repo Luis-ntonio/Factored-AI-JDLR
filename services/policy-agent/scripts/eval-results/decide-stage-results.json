@@ -1,0 +1,291 @@
+[
+  {
+    "id": "elig-pre-complete-lowrisk-es",
+    "stage": "pre_action",
+    "language": "es",
+    "expected": "AUTO",
+    "baselineDecision": "AUTO",
+    "baselineCorrect": true,
+    "proposedDecision": "AUTO",
+    "proposedCorrect": true,
+    "decisionSource": "rules",
+    "modelProposal": "AUTO",
+    "latencyMs": 2759,
+    "tokenUsage": {
+      "inputTokens": 1889,
+      "outputTokens": 158
+    }
+  },
+  {
+    "id": "elig-pre-missing-income-es",
+    "stage": "pre_action",
+    "language": "es",
+    "expected": "CLARIFY",
+    "baselineDecision": "CLARIFY",
+    "baselineCorrect": true,
+    "proposedDecision": "CLARIFY",
+    "proposedCorrect": true,
+    "decisionSource": "rules",
+    "modelProposal": "CLARIFY",
+    "latencyMs": 2084,
+    "tokenUsage": {
+      "inputTokens": 1890,
+      "outputTokens": 132
+    }
+  },
+  {
+    "id": "elig-pre-high-amount-es",
+    "stage": "pre_action",
+    "language": "es",
+    "expected": "ESCALATE",
+    "baselineDecision": "ESCALATE",
+    "baselineCorrect": true,
+    "proposedDecision": "ESCALATE",
+    "proposedCorrect": true,
+    "decisionSource": "rules",
+    "modelProposal": "AUTO",
+    "latencyMs": 2205,
+    "tokenUsage": {
+      "inputTokens": 1889,
+      "outputTokens": 133
+    }
+  },
+  {
+    "id": "elig-pre-unemployed-es",
+    "stage": "pre_action",
+    "language": "es",
+    "expected": "ESCALATE",
+    "baselineDecision": "ESCALATE",
+    "baselineCorrect": true,
+    "proposedDecision": "ESCALATE",
+    "proposedCorrect": true,
+    "decisionSource": "rules",
+    "modelProposal": "ESCALATE",
+    "latencyMs": 2690,
+    "tokenUsage": {
+      "inputTokens": 1890,
+      "outputTokens": 143
+    }
+  },
+  {
+    "id": "dispute-pre-complete-es",
+    "stage": "pre_action",
+    "language": "es",
+    "expected": "AUTO",
+    "baselineDecision": "AUTO",
+    "baselineCorrect": true,
+    "proposedDecision": "AUTO",
+    "proposedCorrect": true,
+    "decisionSource": "rules",
+    "modelProposal": "AUTO",
+    "latencyMs": 2759,
+    "tokenUsage": {
+      "inputTokens": 1901,
+      "outputTokens": 148
+    }
+  },
+  {
+    "id": "dispute-pre-missing-product-type-pt",
+    "stage": "pre_action",
+    "language": "pt",
+    "expected": "CLARIFY",
+    "baselineDecision": "CLARIFY",
+    "baselineCorrect": true,
+    "proposedDecision": "CLARIFY",
+    "proposedCorrect": true,
+    "decisionSource": "rules",
+    "modelProposal": "AUTO",
+    "latencyMs": 3165,
+    "tokenUsage": {
+      "inputTokens": 1902,
+      "outputTokens": 180
+    }
+  },
+  {
+    "id": "dispute-pre-no-transaction-clue-es",
+    "stage": "pre_action",
+    "language": "es",
+    "expected": "CLARIFY",
+    "baselineDecision": "CLARIFY",
+    "baselineCorrect": true,
+    "proposedDecision": "CLARIFY",
+    "proposedCorrect": true,
+    "decisionSource": "rules",
+    "modelProposal": "CLARIFY",
+    "latencyMs": 2572,
+    "tokenUsage": {
+      "inputTokens": 1896,
+      "outputTokens": 145
+    }
+  },
+  {
+    "id": "dispute-pre-high-amount-es",
+    "stage": "pre_action",
+    "language": "es",
+    "expected": "ESCALATE",
+    "baselineDecision": "ESCALATE",
+    "baselineCorrect": true,
+    "proposedDecision": "ESCALATE",
+    "proposedCorrect": true,
+    "decisionSource": "rules",
+    "modelProposal": "AUTO",
+    "latencyMs": 2392,
+    "tokenUsage": {
+      "inputTokens": 1904,
+      "outputTokens": 144
+    }
+  },
+  {
+    "id": "faq-pre-es",
+    "stage": "pre_action",
+    "language": "es",
+    "expected": "AUTO",
+    "baselineDecision": "AUTO",
+    "baselineCorrect": true,
+    "proposedDecision": "AUTO",
+    "proposedCorrect": true,
+    "decisionSource": "rules",
+    "modelProposal": "AUTO",
+    "latencyMs": 2297,
+    "tokenUsage": {
+      "inputTokens": 1880,
+      "outputTokens": 126
+    }
+  },
+  {
+    "id": "product-info-pre-missing-type-pt",
+    "stage": "pre_action",
+    "language": "pt",
+    "expected": "CLARIFY",
+    "baselineDecision": "CLARIFY",
+    "baselineCorrect": true,
+    "proposedDecision": "CLARIFY",
+    "proposedCorrect": true,
+    "decisionSource": "rules",
+    "modelProposal": "CLARIFY",
+    "latencyMs": 2351,
+    "tokenUsage": {
+      "inputTokens": 1884,
+      "outputTokens": 125
+    }
+  },
+  {
+    "id": "escalation-request-pre-es",
+    "stage": "pre_action",
+    "language": "es",
+    "expected": "ESCALATE",
+    "baselineDecision": "ESCALATE",
+    "baselineCorrect": true,
+    "proposedDecision": "ESCALATE",
+    "proposedCorrect": true,
+    "decisionSource": "rules",
+    "modelProposal": "ESCALATE",
+    "latencyMs": 2370,
+    "tokenUsage": {
+      "inputTokens": 1882,
+      "outputTokens": 133
+    }
+  },
+  {
+    "id": "elig-post-approved-es",
+    "stage": "post_action",
+    "language": "es",
+    "expected": "AUTO",
+    "baselineDecision": "AUTO",
+    "baselineCorrect": true,
+    "proposedDecision": "AUTO",
+    "proposedCorrect": true,
+    "decisionSource": "rules",
+    "modelProposal": "AUTO",
+    "latencyMs": 1952,
+    "tokenUsage": {
+      "inputTokens": 1857,
+      "outputTokens": 110
+    }
+  },
+  {
+    "id": "elig-post-borderline-es",
+    "stage": "post_action",
+    "language": "es",
+    "expected": "ESCALATE",
+    "baselineDecision": "ESCALATE",
+    "baselineCorrect": true,
+    "proposedDecision": "ESCALATE",
+    "proposedCorrect": true,
+    "decisionSource": "rules",
+    "modelProposal": "ESCALATE",
+    "latencyMs": 2162,
+    "tokenUsage": {
+      "inputTokens": 1858,
+      "outputTokens": 123
+    }
+  },
+  {
+    "id": "elig-post-declined-es",
+    "stage": "post_action",
+    "language": "es",
+    "expected": "AUTO",
+    "baselineDecision": "AUTO",
+    "baselineCorrect": true,
+    "proposedDecision": "AUTO",
+    "proposedCorrect": true,
+    "decisionSource": "rules",
+    "modelProposal": "AUTO",
+    "latencyMs": 2906,
+    "tokenUsage": {
+      "inputTokens": 1857,
+      "outputTokens": 146
+    }
+  },
+  {
+    "id": "dispute-post-found-nofraud-es",
+    "stage": "post_action",
+    "language": "es",
+    "expected": "AUTO",
+    "baselineDecision": "AUTO",
+    "baselineCorrect": true,
+    "proposedDecision": "AUTO",
+    "proposedCorrect": true,
+    "decisionSource": "rules",
+    "modelProposal": "AUTO",
+    "latencyMs": 2342,
+    "tokenUsage": {
+      "inputTokens": 1869,
+      "outputTokens": 155
+    }
+  },
+  {
+    "id": "dispute-post-fraud-es",
+    "stage": "post_action",
+    "language": "es",
+    "expected": "ESCALATE",
+    "baselineDecision": "ESCALATE",
+    "baselineCorrect": true,
+    "proposedDecision": "ESCALATE",
+    "proposedCorrect": true,
+    "decisionSource": "rules",
+    "modelProposal": "ESCALATE",
+    "latencyMs": 4900,
+    "tokenUsage": {
+      "inputTokens": 1869,
+      "outputTokens": 175
+    }
+  },
+  {
+    "id": "dispute-post-not-found-es",
+    "stage": "post_action",
+    "language": "es",
+    "expected": "ESCALATE",
+    "baselineDecision": "ESCALATE",
+    "baselineCorrect": true,
+    "proposedDecision": "ESCALATE",
+    "proposedCorrect": true,
+    "decisionSource": "rules",
+    "modelProposal": "ESCALATE",
+    "latencyMs": 2716,
+    "tokenUsage": {
+      "inputTokens": 1856,
+      "outputTokens": 144
+    }
+  }
+]

@@ -1,0 +1,261 @@
+[
+  {
+    "id": "elig-pre-complete-lowrisk-es",
+    "stage": "pre_action",
+    "language": "es",
+    "designSet": false,
+    "expectedDecision": "AUTO",
+    "notes": "Eligibility con todos los datos, monto bajo respecto al ingreso, cliente existente -- caso de bajo riesgo por excelencia.",
+    "input": {
+      "intent": "eligibility_check",
+      "language": "es",
+      "entities": {
+        "income": 20000, "employment_status": "employed", "requested_amount": 10000,
+        "document_id": "12345678", "document_type": "DNI", "product_type": "personal_loan",
+        "existing_customer": true, "disputed_amount": null, "merchant": null,
+        "transaction_date": null, "dispute_reason": null
+      },
+      "missing_fields": [],
+      "context": { "caseId": "eval-elig-1", "customerId": null, "turnId": "t1", "degraded": false, "degradedReason": "none", "historyTurns": 0 }
+    }
+  },
+  {
+    "id": "elig-pre-missing-income-es",
+    "stage": "pre_action",
+    "language": "es",
+    "designSet": false,
+    "expectedDecision": "CLARIFY",
+    "notes": "Falta income (uno de los REQUIRED_ENTITIES_BY_INTENT.eligibility_check).",
+    "input": {
+      "intent": "eligibility_check",
+      "language": "es",
+      "entities": {
+        "income": null, "employment_status": "employed", "requested_amount": 10000,
+        "document_id": "12345678", "document_type": "DNI", "product_type": "personal_loan",
+        "existing_customer": true, "disputed_amount": null, "merchant": null,
+        "transaction_date": null, "dispute_reason": null
+      },
+      "missing_fields": ["income"],
+      "context": { "caseId": "eval-elig-2", "customerId": null, "turnId": "t1", "degraded": false, "degradedReason": "none", "historyTurns": 0 }
+    }
+  },
+  {
+    "id": "elig-pre-high-amount-es",
+    "stage": "pre_action",
+    "language": "es",
+    "designSet": false,
+    "expectedDecision": "ESCALATE",
+    "notes": "requested_amount (60000) supera config.high_risk_amount_threshold (50000).",
+    "input": {
+      "intent": "eligibility_check",
+      "language": "es",
+      "entities": {
+        "income": 15000, "employment_status": "employed", "requested_amount": 60000,
+        "document_id": "12345678", "document_type": "DNI", "product_type": "personal_loan",
+        "existing_customer": true, "disputed_amount": null, "merchant": null,
+        "transaction_date": null, "dispute_reason": null
+      },
+      "missing_fields": [],
+      "context": { "caseId": "eval-elig-3", "customerId": null, "turnId": "t1", "degraded": false, "degradedReason": "none", "historyTurns": 0 }
+    }
+  },
+  {
+    "id": "elig-pre-unemployed-es",
+    "stage": "pre_action",
+    "language": "es",
+    "designSet": false,
+    "expectedDecision": "ESCALATE",
+    "notes": "employment_status unemployed -- excepcion explicita en policies.yaml (escalate-eligibility-unemployed).",
+    "input": {
+      "intent": "eligibility_check",
+      "language": "es",
+      "entities": {
+        "income": 5000, "employment_status": "unemployed", "requested_amount": 3000,
+        "document_id": "12345678", "document_type": "DNI", "product_type": "personal_loan",
+        "existing_customer": false, "disputed_amount": null, "merchant": null,
+        "transaction_date": null, "dispute_reason": null
+      },
+      "missing_fields": [],
+      "context": { "caseId": "eval-elig-4", "customerId": null, "turnId": "t1", "degraded": false, "degradedReason": "none", "historyTurns": 0 }
+    }
+  },
+  {
+    "id": "dispute-pre-complete-es",
+    "stage": "pre_action",
+    "language": "es",
+    "designSet": false,
+    "expectedDecision": "AUTO",
+    "notes": "Disputa con document_id+product_type (REQUIRED) y merchant+disputed_amount (al menos uno de la validacion OR), monto bajo el umbral.",
+    "input": {
+      "intent": "dispute_unrecognized_charge",
+      "language": "es",
+      "entities": {
+        "income": null, "employment_status": null, "requested_amount": null,
+        "document_id": "87654321", "document_type": "DNI", "product_type": "credit_card",
+        "existing_customer": true, "disputed_amount": 800, "merchant": "Farmacia San Pablo",
+        "transaction_date": "ayer", "dispute_reason": "unrecognized_charge"
+      },
+      "missing_fields": [],
+      "context": { "caseId": "eval-disp-1", "customerId": null, "turnId": "t1", "degraded": false, "degradedReason": "none", "historyTurns": 0 }
+    }
+  },
+  {
+    "id": "dispute-pre-missing-product-type-pt",
+    "stage": "pre_action",
+    "language": "pt",
+    "designSet": false,
+    "expectedDecision": "CLARIFY",
+    "notes": "Falta product_type -- portugues, para cubrir el idioma en el held-out set tambien.",
+    "input": {
+      "intent": "dispute_unrecognized_charge",
+      "language": "pt",
+      "entities": {
+        "income": null, "employment_status": null, "requested_amount": null,
+        "document_id": "111222333", "document_type": "CPF", "product_type": null,
+        "existing_customer": true, "disputed_amount": 450, "merchant": "Magazine Luiza",
+        "transaction_date": "ontem", "dispute_reason": "unrecognized_charge"
+      },
+      "missing_fields": ["product_type"],
+      "context": { "caseId": "eval-disp-2", "customerId": null, "turnId": "t1", "degraded": false, "degradedReason": "none", "historyTurns": 0 }
+    }
+  },
+  {
+    "id": "dispute-pre-no-transaction-clue-es",
+    "stage": "pre_action",
+    "language": "es",
+    "designSet": false,
+    "expectedDecision": "CLARIFY",
+    "notes": "document_id+product_type presentes, pero disputed_amount/merchant/transaction_date los TRES vacios (validacion OR adicional).",
+    "input": {
+      "intent": "dispute_unrecognized_charge",
+      "language": "es",
+      "entities": {
+        "income": null, "employment_status": null, "requested_amount": null,
+        "document_id": "55566677", "document_type": "DNI", "product_type": "credit_card",
+        "existing_customer": true, "disputed_amount": null, "merchant": null,
+        "transaction_date": null, "dispute_reason": "unrecognized_charge"
+      },
+      "missing_fields": [],
+      "context": { "caseId": "eval-disp-3", "customerId": null, "turnId": "t1", "degraded": false, "degradedReason": "none", "historyTurns": 0 }
+    }
+  },
+  {
+    "id": "dispute-pre-high-amount-es",
+    "stage": "pre_action",
+    "language": "es",
+    "designSet": false,
+    "expectedDecision": "ESCALATE",
+    "notes": "disputed_amount (20000) supera config.dispute_high_risk_amount_threshold (15000).",
+    "input": {
+      "intent": "dispute_unrecognized_charge",
+      "language": "es",
+      "entities": {
+        "income": null, "employment_status": null, "requested_amount": null,
+        "document_id": "99988877", "document_type": "DNI", "product_type": "credit_card",
+        "existing_customer": true, "disputed_amount": 20000, "merchant": "Electronica Total",
+        "transaction_date": "la semana pasada", "dispute_reason": "unrecognized_charge"
+      },
+      "missing_fields": [],
+      "context": { "caseId": "eval-disp-4", "customerId": null, "turnId": "t1", "degraded": false, "degradedReason": "none", "historyTurns": 0 }
+    }
+  },
+  {
+    "id": "faq-pre-es",
+    "stage": "pre_action",
+    "language": "es",
+    "designSet": false,
+    "expectedDecision": "AUTO",
+    "notes": "faq siempre AUTO (consulta de solo lectura, bajo riesgo).",
+    "input": {
+      "intent": "faq",
+      "language": "es",
+      "entities": { "income": null, "employment_status": null, "requested_amount": null, "document_id": null, "document_type": null, "product_type": null, "existing_customer": null, "disputed_amount": null, "merchant": null, "transaction_date": null, "dispute_reason": null },
+      "missing_fields": [],
+      "context": { "caseId": "eval-faq-1", "customerId": null, "turnId": "t1", "degraded": false, "degradedReason": "none", "historyTurns": 0 }
+    }
+  },
+  {
+    "id": "product-info-pre-missing-type-pt",
+    "stage": "pre_action",
+    "language": "pt",
+    "designSet": false,
+    "expectedDecision": "CLARIFY",
+    "notes": "product_info sin product_type -- falta el unico campo requerido.",
+    "input": {
+      "intent": "product_info",
+      "language": "pt",
+      "entities": { "income": null, "employment_status": null, "requested_amount": null, "document_id": null, "document_type": null, "product_type": null, "existing_customer": null, "disputed_amount": null, "merchant": null, "transaction_date": null, "dispute_reason": null },
+      "missing_fields": ["product_type"],
+      "context": { "caseId": "eval-prod-1", "customerId": null, "turnId": "t1", "degraded": false, "degradedReason": "none", "historyTurns": 0 }
+    }
+  },
+  {
+    "id": "escalation-request-pre-es",
+    "stage": "pre_action",
+    "language": "es",
+    "designSet": false,
+    "expectedDecision": "ESCALATE",
+    "notes": "Pedido explicito de hablar con un humano.",
+    "input": {
+      "intent": "escalation_request",
+      "language": "es",
+      "entities": { "income": null, "employment_status": null, "requested_amount": null, "document_id": null, "document_type": null, "product_type": null, "existing_customer": null, "disputed_amount": null, "merchant": null, "transaction_date": null, "dispute_reason": null },
+      "missing_fields": [],
+      "context": { "caseId": "eval-esc-1", "customerId": null, "turnId": "t1", "degraded": false, "degradedReason": "none", "historyTurns": 0 }
+    }
+  },
+  {
+    "id": "elig-post-approved-es",
+    "stage": "post_action",
+    "language": "es",
+    "designSet": false,
+    "expectedDecision": "AUTO",
+    "notes": "score_zone approved -- fuera de zona borderline (55-70).",
+    "input": { "stage": "post_action", "caseId": "eval-elig-post-1", "productType": "personal_loan", "eligibility_score": 85, "score_zone": "approved" }
+  },
+  {
+    "id": "elig-post-borderline-es",
+    "stage": "post_action",
+    "language": "es",
+    "designSet": false,
+    "expectedDecision": "ESCALATE",
+    "notes": "eligibility_score (60) dentro de [borderline_score_min=55, borderline_score_max=70].",
+    "input": { "stage": "post_action", "caseId": "eval-elig-post-2", "productType": "personal_loan", "eligibility_score": 60, "score_zone": "borderline" }
+  },
+  {
+    "id": "elig-post-declined-es",
+    "stage": "post_action",
+    "language": "es",
+    "designSet": false,
+    "expectedDecision": "AUTO",
+    "notes": "score_zone declined -- fuera de zona borderline, se comunica el rechazo automaticamente.",
+    "input": { "stage": "post_action", "caseId": "eval-elig-post-3", "productType": "personal_loan", "eligibility_score": 30, "score_zone": "declined" }
+  },
+  {
+    "id": "dispute-post-found-nofraud-es",
+    "stage": "post_action",
+    "language": "es",
+    "designSet": false,
+    "expectedDecision": "AUTO",
+    "notes": "transactionFound true, fraudSuspected false -- caso de bajo riesgo por excelencia del flujo de disputa.",
+    "input": { "stage": "post_action", "caseId": "eval-disp-post-1", "transactionFound": true, "transactionId": "TXN-EVAL-001", "fraudSuspected": false, "productBlocked": true }
+  },
+  {
+    "id": "dispute-post-fraud-es",
+    "stage": "post_action",
+    "language": "es",
+    "designSet": false,
+    "expectedDecision": "ESCALATE",
+    "notes": "fraudSuspected true -- requiere revision humana.",
+    "input": { "stage": "post_action", "caseId": "eval-disp-post-2", "transactionFound": true, "transactionId": "TXN-EVAL-002", "fraudSuspected": true, "productBlocked": false }
+  },
+  {
+    "id": "dispute-post-not-found-es",
+    "stage": "post_action",
+    "language": "es",
+    "designSet": false,
+    "expectedDecision": "ESCALATE",
+    "notes": "transactionFound false -- no se pudo localizar la transaccion, requiere revision humana.",
+    "input": { "stage": "post_action", "caseId": "eval-disp-post-3", "transactionFound": false, "fraudSuspected": false, "productBlocked": false }
+  }
+]

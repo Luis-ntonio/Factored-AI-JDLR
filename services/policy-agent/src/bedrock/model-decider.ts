@@ -41,6 +41,12 @@ export interface ModelProposal {
    * `decision`, ver `guardrail.ts`). */
   confidence: number;
   reasoning: string;
+  /** Uso real de tokens reportado por Bedrock (`ConverseResponse.usage`) --
+   * puramente informativo/auditoría (mismo criterio que `confidence`), usado
+   * por `scripts/evaluate-decide-stage.ts` para el reporte de costo real
+   * (no una estimación por caracteres). `undefined` si la respuesta no trae
+   * `usage` (nunca debería pasar en runtime real, pero no se asume). */
+  tokenUsage?: { inputTokens: number; outputTokens: number };
 }
 
 const VALID_DECISIONS: readonly Decision[] = ["AUTO", "CLARIFY", "ESCALATE"];
@@ -160,7 +166,13 @@ function extractProposal(response: ConverseCommandOutput): ModelProposal | null 
     const reasoningRaw = input.reasoning;
     const reasoning = typeof reasoningRaw === "string" ? reasoningRaw.trim() : "";
 
-    return { decision: decision as Decision, confidence, reasoning };
+    const usage = response.usage;
+    const tokenUsage =
+      typeof usage?.inputTokens === "number" && typeof usage?.outputTokens === "number"
+        ? { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens }
+        : undefined;
+
+    return { decision: decision as Decision, confidence, reasoning, tokenUsage };
   } catch {
     return null;
   }
