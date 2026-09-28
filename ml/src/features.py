@@ -155,21 +155,31 @@ def _join_products(df: pd.DataFrame, products_path: str) -> pd.DataFrame:
 
 
 def _join_exchange_rates(df: pd.DataFrame, rates_path: str) -> pd.DataFrame:
-    """Normaliza `amount` a USD usando `daily_exchange_rates`. Defensivo a
-    propósito: el schema exacto de esta tabla no se confirmó todavía contra
-    el archivo real (no se pudo inspeccionar sin acceso al dataset) -- si
-    las columnas esperadas (`currency`, `rate_date`, `rate_to_usd`) no
-    existen con esos nombres, se loguea una advertencia y se sigue sin la
-    normalización en vez de romper todo el pipeline."""
+    """Normaliza `amount` a USD usando `daily_exchange_rates`.
+
+    Schema real confirmado (13,164 filas, 1097 fechas × 12 pares
+    source/target -- las 4 monedas del dataset {MXN,COP,ARS,USD} cruzadas
+    entre sí, sin pares de la misma moneda, sin duplicados por
+    date+source+target): `date` (datetime.date), `source_currency`,
+    `target_currency`, `exchange_rate` (multiplicar `amount` en
+    `source_currency` por esto da el monto en `target_currency`),
+    `buy_rate`/`sell_rate`/`source` (no usados -- `exchange_rate` solo,
+    sin promediar entre proveedores).
+
+    Se queda con las filas `target_currency == "USD"` y hace join por
+    `(source_currency == currency de la transacción, fecha == process_date)`.
+    Transacciones ya en USD no tienen fila propia en la tabla (no hay par
+    USD->USD) -- se completan con rate=1 (amount_usd_normalized = amount).
+    """
     try:
         rates = pd.read_parquet(rates_path)
-    except Exception as e:  # noqa: BLE001 -- defensivo, ver docstring
+    except Exception as e:  # noqa: BLE001 -- defensivo, nunca debe tumbar el pipeline completo
         print(f"ADVERTENCIA: no se pudo leer {rates_path} ({e}) -- sin normalización de moneda.")
         df["amount_usd_normalized"] = df["amount"]
         return df
 
-    expected = {"currency", "rate_date", "rate_to_usd"}
-    if not expected.issubset(set(c.lower() for c in rates.columns)):
+    expected = {"date", "source_currency", "target_currency", "exchange_rate"}
+    if not expected.issubset(set(rates.columns)):
         print(
             f"ADVERTENCIA: daily_exchange_rates.parquet no tiene las columnas esperadas {expected} "
             f"(tiene {list(rates.columns)}) -- AJUSTAR _join_exchange_rates() con los nombres reales. "
@@ -178,15 +188,25 @@ def _join_exchange_rates(df: pd.DataFrame, rates_path: str) -> pd.DataFrame:
         df["amount_usd_normalized"] = df["amount"]
         return df
 
-    rates = rates.rename(columns={c: c.lower() for c in rates.columns})
-    rates["rate_date"] = pd.to_datetime(rates["rate_date"])
-    df["process_date"] = pd.to_datetime(df["transaction_date"]).dt.floor("D")
-    df = df.merge(rates[["currency", "rate_date", "rate_to_usd"]], left_on=["currency", "process_date"], right_on=["currency", "rate_date"], how="left")
-    df["amount_usd_normalized"] = df["amount"] * df["rate_to_usd"]
-    # USD ya es USD (rate=1) -- si la tabla no cubre USD explícitamente, no
-    # dejar NULL una fila que en realidad no necesitaba conversión.
+    rates_usd = rates[rates["target_currency"] == "USD"][["date", "source_currency", "exchange_rate"]].copy()
+    rates_usd["date"] = pd.to_datetime(rates_usd["date"]).dt.strftime("%Y-%m-%d")
+
+    df["process_date_str"] = pd.to_datetime(df["transaction_date"]).dt.strftime("%Y-%m-%d")
+    df = df.merge(
+        rates_usd,
+        left_on=["currency", "process_date_str"],
+        right_on=["source_currency", "date"],
+        how="left",
+        suffixes=("", "_rate"),
+    )
+    df["amount_usd_normalized"] = df["amount"] * df["exchange_rate"]
     df.loc[df["currency"] == "USD", "amount_usd_normalized"] = df.loc[df["currency"] == "USD", "amount"]
-    return df
+
+    unmatched = df["amount_usd_normalized"].isna().sum()
+    if unmatched > 0:
+        print(f"ADVERTENCIA: {unmatched} transacción(es) sin tasa de cambio para su fecha/moneda -- amount_usd_normalized queda NULL, se imputa en train.py.")
+
+    return df.drop(columns=["process_date_str", "date", "source_currency"], errors="ignore")
 
 
 def build_features(
@@ -278,3 +298,18 @@ BOOLEAN_COLUMNS = [
 ]
 
 NUMERIC_COLUMNS = [c for c in FEATURE_COLUMNS if c not in CATEGORICAL_COLUMNS and c not in BOOLEAN_COLUMNS]
+
+
+def prepare_model_input(df: pd.DataFrame) -> pd.DataFrame:
+    """`X` listo para `HistGradientBoostingClassifier` (ver train.py):
+    castea `CATEGORICAL_COLUMNS` a dtype `category` (requerido por
+    `categorical_features="from_dtype"`) y deja NUMERIC_COLUMNS/
+    BOOLEAN_COLUMNS tal cual -- HistGradientBoosting maneja NaN y bool
+    nativamente, sin imputar/escalar (a diferencia del intento inicial con
+    LogisticRegression, ver docstring de `train.build_pipeline`). MISMA
+    función usada en train.py y evaluate.py para que train/test/producción
+    vean exactamente el mismo tipado de columnas."""
+    X = df[FEATURE_COLUMNS].copy()
+    for c in CATEGORICAL_COLUMNS:
+        X[c] = X[c].astype("category")
+    return X
