@@ -22,6 +22,12 @@ function baseContext(overrides: Partial<UnderstandOutput["context"]> = {}) {
     degraded: false,
     degradedReason: "none" as const,
     historyTurns: 0,
+    // "cliente" por default -- la mayoría de estos casos testean lógica de
+    // negocio ajena a auth (missing_fields, thresholds, etc.), no el gate
+    // de login en sí (ver clarify-anonymous-requires-login.test.ts para
+    // eso). Un test que SÍ quiera ejercitar el gate anónimo sobreescribe
+    // `role: "anonimo"` explícitamente.
+    role: "cliente" as const,
     ...overrides,
   };
 }
@@ -306,6 +312,122 @@ describe("policy-agent evaluator", () => {
     expect(result.matchedRules.map((m) => m.id)).toContain("auto-dispute-complete");
     expect(result.matchedRules.map((m) => m.id)).toContain("escalate-dispute-amount-over-threshold");
     expect(result.winningRuleId).toBe("escalate-dispute-amount-over-threshold");
+  });
+
+  it("dispute_unrecognized_charge, cliente_estrella con monto entre ambos umbrales -> AUTO (el rol cambia automatización real)", () => {
+    const standardThreshold = Number(policy.config.dispute_high_risk_amount_threshold);
+    const starThreshold = Number(policy.config.star_dispute_high_risk_amount_threshold);
+    expect(starThreshold).toBeGreaterThan(standardThreshold);
+
+    const amountBetweenThresholds = standardThreshold + 1;
+    const input: UnderstandOutput = {
+      intent: "dispute_unrecognized_charge",
+      language: "es",
+      entities: {
+        ...emptyEntities(),
+        product_type: "credit_card",
+        document_id: "12345678",
+        disputed_amount: amountBetweenThresholds,
+        merchant: "Comercio",
+        transaction_date: null,
+      },
+      missing_fields: [],
+      context: baseContext({ role: "cliente_estrella" }),
+    };
+
+    const result = evaluatePreAction(input, policy);
+    expect(result.decision).toBe("AUTO");
+    expect(result.winningRuleId).toBe("auto-dispute-complete");
+  });
+
+  it("dispute_unrecognized_charge, cliente_estrella con monto sobre el umbral alto -> ESCALATE vía la regla -star", () => {
+    const starThreshold = Number(policy.config.star_dispute_high_risk_amount_threshold);
+    const input: UnderstandOutput = {
+      intent: "dispute_unrecognized_charge",
+      language: "es",
+      entities: {
+        ...emptyEntities(),
+        product_type: "credit_card",
+        document_id: "12345678",
+        disputed_amount: starThreshold + 1,
+        merchant: "Comercio",
+        transaction_date: null,
+      },
+      missing_fields: [],
+      context: baseContext({ role: "cliente_estrella" }),
+    };
+
+    const result = evaluatePreAction(input, policy);
+    expect(result.decision).toBe("ESCALATE");
+    expect(result.winningRuleId).toBe("escalate-dispute-amount-over-threshold-star");
+  });
+
+  it.each(["anonimo", undefined] as const)(
+    "eligibility_check con datos completos pero role=%s -> CLARIFY (login), no AUTO",
+    (role) => {
+      const input: UnderstandOutput = {
+        intent: "eligibility_check",
+        language: "es",
+        entities: {
+          ...emptyEntities(),
+          income: 20000,
+          employment_status: "employed",
+          requested_amount: 10000,
+          document_id: "12345678",
+          document_type: "DNI",
+          product_type: "personal_loan",
+          existing_customer: true,
+        },
+        missing_fields: [],
+        context: baseContext({ role }),
+      };
+
+      const result = evaluatePreAction(input, policy);
+      expect(result.decision).toBe("CLARIFY");
+      expect(result.winningRuleId).toBe("clarify-anonymous-requires-login");
+      expect(result.askField).toBe("session_login");
+    }
+  );
+
+  it("dispute_unrecognized_charge completo pero anónimo -> CLARIFY (login), no AUTO", () => {
+    const input: UnderstandOutput = {
+      intent: "dispute_unrecognized_charge",
+      language: "es",
+      entities: {
+        ...emptyEntities(),
+        product_type: "credit_card",
+        document_id: "12345678",
+        disputed_amount: 100,
+        merchant: "Netflix",
+        transaction_date: null,
+      },
+      missing_fields: [],
+      context: baseContext({ role: "anonimo" }),
+    };
+
+    const result = evaluatePreAction(input, policy);
+    expect(result.decision).toBe("CLARIFY");
+    expect(result.winningRuleId).toBe("clarify-anonymous-requires-login");
+  });
+
+  it("product_info/faq anónimos siguen sin requerir login (información pública)", () => {
+    const productInfoInput: UnderstandOutput = {
+      intent: "product_info",
+      language: "es",
+      entities: { ...emptyEntities(), product_type: "credit_card" },
+      missing_fields: [],
+      context: baseContext({ role: "anonimo" }),
+    };
+    expect(evaluatePreAction(productInfoInput, policy).decision).toBe("AUTO");
+
+    const faqInput: UnderstandOutput = {
+      intent: "faq",
+      language: "es",
+      entities: emptyEntities(),
+      missing_fields: [],
+      context: baseContext({ role: "anonimo" }),
+    };
+    expect(evaluatePreAction(faqInput, policy).decision).toBe("AUTO");
   });
 
   it("faq siempre AUTO", () => {

@@ -49,6 +49,8 @@ function baseContext(overrides: Partial<UnderstandOutput["context"]> = {}) {
     degraded: false,
     degradedReason: "none" as const,
     historyTurns: 0,
+    // "cliente" por default -- ver mismo comentario en evaluator.test.ts.
+    role: "cliente" as const,
     ...overrides,
   };
 }

@@ -39,6 +39,11 @@ function baseContext(overrides: Partial<UnderstandOutput["context"]> = {}): Unde
     degraded: false,
     degradedReason: "none",
     historyTurns: 0,
+    // "cliente" por default -- este test ejercita el pipeline de score de
+    // elegibilidad, no el gate de login (ver policy-agent/src/
+    // evaluator.test.ts para eso); sin esto, policy-agent pre_action
+    // devolvería CLARIFY (clarify-anonymous-requires-login) en vez de AUTO.
+    role: "cliente",
     ...overrides,
   };
 }

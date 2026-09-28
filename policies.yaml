@@ -203,6 +203,19 @@ config:
   # limitación ya declarada para `high_risk_amount_threshold`).
   dispute_high_risk_amount_threshold: 15000
 
+  # Umbral ALTERNATIVO para `context.role == "cliente_estrella"` (segment
+  # real `Premium` del core bancario, ver `packages/shared/src/
+  # session-token.ts`, `roleFromSegment`). Decisión de negocio simulada:
+  # un cliente Premium con historial ya verificado en el login (documento +
+  # nombre confirmados contra el core real, no solo una entity sin probar)
+  # tolera un monto disputado más alto antes de requerir revisión humana --
+  # 2x el umbral estándar, placeholder documentado igual que el resto de
+  # este bloque `config`, a validar con negocio real. Ver reglas
+  # `escalate-dispute-amount-over-threshold`/`-star` más abajo: son
+  # mutuamente excluyentes por `context.role`, nunca las dos matchean para
+  # el mismo turno.
+  star_dispute_high_risk_amount_threshold: 30000
+
   # Zona límite de score de elegibilidad (CONFIRMADO, ver sección post_action
   # más abajo — services/transaction-agent lee estos dos valores directamente
   # de este archivo en runtime, mismo mecanismo js-yaml que este evaluador,
@@ -234,6 +247,35 @@ rules:
       Gana sobre cualquier otra señal del mismo turno, sin excepción (ver
       docs/CONTRACTS.md 4.1: "escalation_request... gana sobre cualquier
       otra señal en el mismo mensaje").
+
+  # --- Auth de sesión (ver packages/shared/src/session-token.ts,
+  # services/auth-agent, docs/EVALUATION-CRITERIA.md punto 6 Security) ----
+
+  - id: clarify-anonymous-requires-login
+    stage: pre_action
+    when:
+      all:
+        - field: intent
+          op: in
+          value: [eligibility_check, dispute_unrecognized_charge]
+        - field: context.role
+          op: not_in
+          value: [cliente, cliente_estrella]
+    decision: CLARIFY
+    ask_field: session_login
+    reason: >
+      `intent` requiere identidad verificada (`eligibility_check`/
+      `dispute_unrecognized_charge` -- ambos exponen datos financieros/de
+      cuenta reales) y `context.role` no es `cliente`/`cliente_estrella`
+      (sin sesión válida, o token inválido/expirado -- ver
+      `services/conversation-agent/src/auth/resolve-role.ts`, que degrada
+      a `anonimo` ante CUALQUIER problema, nunca deja `role` indefinido en
+      runtime real). `ask_field: session_login` es un sentinel reconocido
+      por el frontend (`apps/web`, `AuthPanel`/`ClarifyQuestion`) para
+      mostrar el form de login, NUNCA un `EntityKey` real de
+      `understand-output.ts`. `product_info`/`faq` NO están acá a
+      propósito -- información de catálogo pública, sin dato personal
+      involucrado, sigue sin requerir sesión.
 
   - id: escalate-eligibility-unemployed
     stage: pre_action
@@ -283,6 +325,17 @@ rules:
         - field: entities.disputed_amount
           op: gt
           value_ref: dispute_high_risk_amount_threshold
+        # Excluye a cliente_estrella a propósito -- esa población usa
+        # `escalate-dispute-amount-over-threshold-star` de abajo, con un
+        # umbral más alto. Sin esta condición, ambas reglas matchearían
+        # para un cliente_estrella con monto entre los dos umbrales, y
+        # "más conservador gana" haría que el umbral alto nunca tuviera
+        # efecto real -- se necesita la exclusión explícita, no alcanza con
+        # agregar la regla `-star` sola.
+        - not:
+            field: context.role
+            op: eq
+            value: cliente_estrella
     decision: ESCALATE
     reason: >
       El monto disputado (`entities.disputed_amount`) supera el umbral
@@ -293,6 +346,28 @@ rules:
       un préstamo solicitado). Un cargo disputado de monto alto requiere
       revisión humana antes de continuar con la investigación automática,
       independientemente de si el resto de `entities` está completo.
+
+  - id: escalate-dispute-amount-over-threshold-star
+    stage: pre_action
+    when:
+      all:
+        - field: intent
+          op: eq
+          value: dispute_unrecognized_charge
+        - field: context.role
+          op: eq
+          value: cliente_estrella
+        - field: entities.disputed_amount
+          op: gt
+          value_ref: star_dispute_high_risk_amount_threshold
+    decision: ESCALATE
+    reason: >
+      Mismo criterio que `escalate-dispute-amount-over-threshold`, con el
+      umbral alternativo `config.star_dispute_high_risk_amount_threshold`
+      para `context.role == cliente_estrella` (ver comentario en el bloque
+      `config`). Demuestra que el rol de sesión cambia automatización real,
+      no solo gatea el login -- un cliente_estrella con un monto entre
+      ambos umbrales sigue en AUTO/CLARIFY normal en vez de escalar acá.
 
   # NOTA — `is_repeat_complainer` (reclamante repetido) NO se implementa como
   # regla acá. Evaluación explícita (Tarea 4, pivot 2026-09-27): el flujo de
