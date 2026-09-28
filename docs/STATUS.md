@@ -1227,3 +1227,23 @@ Desplegado a AWS real (`banking-agent-dev-conversation-agent`).
 - Pipeline `dispute_unrecognized_charge` completo (Understand→Decide→Act→Verify→PostActionDecide→respuesta) corriendo end-to-end contra AWS real, verificado con `curl` real contra `chat_api_endpoint`, no solo localmente.
 - `dispute_post_action_contract_status: CONFIRMED` en `policies.yaml` — ya no es una propuesta.
 - Pendiente explícito (no bloqueante, próxima fase si queda tiempo): `is_repeat_complainer` y `dispute_status_check` siguen fuera de scope (mismas razones que Fase 3); robustecer más el flujo de eligibility si el usuario lo pide ("si queda tiempo").
+
+## Fase ML — evaluación del "learned component" (2026-09-28)
+
+El PDF del hackathon (`hacka-info/Factored AI & Data Hackathon 2026.pdf`, pág. 4) exige evaluar al menos un "learned component" contra un baseline con held-out evaluation, labels válidos y prevención de leakage — pero aclara explícitamente que entrenar un modelo nuevo **no es obligatorio**. Dos piezas de trabajo, ambas cerradas:
+
+### A. Harness de evaluación del guardrail de Bedrock (learned component pre-entrenado, sin entrenar nada)
+
+`services/policy-agent/scripts/evaluate-decide-stage.ts`: compara baseline (`evaluatePreAction`/`evaluatePostAction` solos) contra el sistema propuesto (+ guardrail de Bedrock, `applyModelGuardrail`) sobre 17 casos held-out (ambos stages, ambos intents, es/pt, labels derivados de los umbrales reales de `policies.yaml`). Corrido contra Bedrock real (`us.anthropic.claude-sonnet-4-6`): **16/17 decisiones correctas**, con 1 caso real de escalación innecesaria capturado y reportado, no ocultado. Reporte completo en `docs/EVALUATION-DECIDE-STAGE.md`, con métricas del propio vocabulario del rubric (Safe Automated Resolution, Unsafe Outcomes, Escalation Quality, latencia/costo p50/p95 con tokens reales de Bedrock).
+
+### B. Clasificador de fraude entrenado sobre el dataset real — resultado negativo honesto
+
+Decisión de scope (con el usuario): entrenar un modelo de fraude para `dispute_unrecognized_charge` está justificado (reemplazaría el lookup directo `fraudSuspected = tx.is_fraud`, que en un banco real no existiría en el momento de la disputa); entrenar algo para `eligibility` NO está justificado (el PDF pide explícitamente que esa política sea determinística/auditable, no aprendida) ni para intent (la EDA del equipo ya descartó el texto conversacional como no entrenable).
+
+Pipeline completo en `ml/` (Python, DuckDB + pandas/scikit-learn — mismo tooling que ya usó el equipo para su EDA). Acceso al dataset real bloqueado inicialmente por el sistema de permisos (clasificador "Credential Materialization" al intentar leer las credenciales del PDF de la hackathon) — resuelto con el usuario corriendo la descarga él mismo y compartiendo solo los listados de paths (sin credenciales). A pedido del usuario se expandió el scope de `transactions` sola a también `customers`/`products`/`daily_exchange_rates` (todas chicas, todas con features point-in-time seguras — ver `ml/src/features.py` para el detalle completo de qué campos se excluyen por riesgo de leakage y por qué).
+
+Corrida real contra 4.4M transacciones (4,316 fraude real, 0.098%): **el modelo entrenado no supera al baseline**. Se probaron 2 familias de modelo (regresión logística, después `HistGradientBoostingClassifier`) — ambas con PR-AUC prácticamente igual al base rate (~0.001), incluso IN-SAMPLE (sobre datos que el modelo vio al entrenar, lo que descarta que sea un problema de generalización/overfitting — es evidencia de que la señal no está en las features disponibles). El baseline (threshold sobre la columna `fraud_score` ya provista en el dataset) funciona muy bien: Precision 1.0, Recall 0.57, F1 0.72 — probablemente `fraud_score` es la señal real (o casi) usada para generar `is_fraud` en este dataset sintético.
+
+En el camino se encontraron y arreglaron 2 bugs reales del propio harness de evaluación (no del modelo en sí): un bug de calibración de threshold (`class_weight="balanced"` bajo desbalance extremo deja sin sentido el 0.5 "de fábrica" como corte de decisión) y un bug de reporte (una variable `threshold` compartida entre el modelo y el baseline hacía que el reporte mostrara el número equivocado).
+
+**Decisión final (usuario, 2026-09-28): dejar el modelo entrenado documentado tal cual, sin integrarlo en vivo** — wirearlo en `compute-dispute.ts` empeoraría el sistema real dado que no tiene poder predictivo. El hallazgo negativo queda como evidencia de rigor ("Include failures in the results", PDF pág. 4) en `ml/REPORT.md` (con diagnóstico in-sample incluido) y `ml/README.md`. `compute-dispute.ts` sigue sin tocarse — `fraudSuspected` sigue leyendo `is_fraud` directo, sin cambios de esta fase.

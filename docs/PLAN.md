@@ -736,3 +736,11 @@ Cierra todos los pendientes que dejó Fase 3. Detalle técnico completo (causa r
 - `is_repeat_complainer`/`dispute_status_check` siguen fuera de scope, mismas razones que Fase 3.
 - Los pendientes ya existentes de fases anteriores (política de retención de `ttl`, `AdministratorAccess` del usuario del proyecto, hardening de Security) siguen sin resolver, sin relación con este pivot.
 - Limpieza del `git stash` dejado como red de seguridad durante el incidente de concurrencia de Fase 3 — corresponde al usuario confirmarlo y limpiarlo.
+
+## Fase ML — evaluación del "learned component" (2026-09-28)
+
+Detalle técnico completo en `docs/STATUS.md`, sección "Fase ML" — acá el resumen para el historial.
+
+- **Harness de evaluación del guardrail de Bedrock** (`services/policy-agent/scripts/evaluate-decide-stage.ts`): baseline (reglas solas) vs. sistema propuesto (+ Bedrock), 17 casos held-out, 16/17 correctos contra Bedrock real. `docs/EVALUATION-DECIDE-STAGE.md`.
+- **Clasificador de fraude entrenado** (`ml/`, Python): dataset real completo descargado (4.4M transacciones + customers/products/daily_exchange_rates). Resultado: **el modelo entrenado NO supera al baseline `fraud_score`** — probado con 2 familias de modelo, PR-AUC ~= base rate incluso in-sample. Decisión del usuario: dejarlo documentado como hallazgo negativo honesto (`ml/REPORT.md`), sin integrar en vivo — `compute-dispute.ts` sigue sin tocarse.
+- Ambos bloques cumplen el requisito del PDF del hackathon (pág. 4: "evaluate at least one learned component against an appropriate baseline") — uno con resultado positivo (Bedrock), uno con resultado negativo honesto (fraude entrenado), ambos con leakage prevention y held-out evaluation documentados.
