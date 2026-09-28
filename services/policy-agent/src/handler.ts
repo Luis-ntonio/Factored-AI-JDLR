@@ -1,5 +1,5 @@
 import * as path from "node:path";
-import type { EligibilityResult, UnderstandOutput } from "@banking-agent/shared";
+import type { DisputeVerificationResult, EligibilityResult, UnderstandOutput } from "@banking-agent/shared";
 import { evaluatePostAction, evaluatePreAction, loadPolicyFile } from "./evaluator";
 import type { PolicyDecisionResult, PolicyFile } from "./types";
 import { getBedrockDeciderConfig } from "./bedrock/config";
@@ -110,9 +110,14 @@ function fallbackDecision(): PolicyDecisionResult {
 }
 
 /** Tipo del Payload que envía la Step Function en la segunda invocación
- * (Task "PostActionDecide"): un `EligibilityResult` completo con el campo
- * adicional `stage: "post_action"` a nivel raíz como discriminador. */
-export type PostActionEvent = EligibilityResult & { stage: "post_action" };
+ * (Task "PostActionDecide"): un `EligibilityResult` (intent eligibility_check)
+ * o `DisputeVerificationResult` (intent dispute_unrecognized_charge) completo,
+ * con el campo adicional `stage: "post_action"` a nivel raíz como
+ * discriminador. Cuál de los dos shapes es el real no se decide acá -- viaja
+ * tal cual lo produjo transaction-agent hasta `evaluatePostAction`
+ * (`PostActionResult`, `../evaluator.ts`), que sí distingue entre ambos en
+ * runtime por presencia de campos (nunca por `instanceof`). */
+export type PostActionEvent = (EligibilityResult | DisputeVerificationResult) & { stage: "post_action" };
 
 /** Guard que distingue el Payload de `PostActionDecide` (post_action) del
  * `UnderstandOutput` crudo que sigue enviando el Task "Decide" existente
@@ -128,17 +133,18 @@ function isPostActionEvent(event: unknown): event is PostActionEvent {
   );
 }
 
-/** Input que se le manda al modelo: el `EligibilityResult` completo (sin el
- * campo `stage`, que es un discriminador propio del contrato interno de
- * este Lambda, no parte de `EligibilityResult`) para post_action, o el
- * `UnderstandOutput` crudo para pre_action. */
+/** Input que se le manda al modelo: el `EligibilityResult`/
+ * `DisputeVerificationResult` completo (sin el campo `stage`, que es un
+ * discriminador propio del contrato interno de este Lambda, no parte de
+ * ninguno de los dos contratos) para post_action, o el `UnderstandOutput`
+ * crudo para pre_action. */
 function toModelInput(
   event: UnderstandOutput | PostActionEvent,
   stage: DecisionStage
-): UnderstandOutput | EligibilityResult {
+): UnderstandOutput | EligibilityResult | DisputeVerificationResult {
   if (stage === "post_action") {
-    const { stage: _stage, ...eligibilityResult } = event as PostActionEvent;
-    return eligibilityResult;
+    const { stage: _stage, ...postActionResult } = event as PostActionEvent;
+    return postActionResult;
   }
   return event as UnderstandOutput;
 }

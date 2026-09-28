@@ -192,6 +192,50 @@ describe("policy-agent handler con Bedrock configurado (SSM/Bedrock mockeados)",
     expect(bedrockSend).not.toHaveBeenCalled();
   });
 
+  /** Regresión del bug real reportado: policy-agent escalaba TODA disputa en
+   * `post_action` porque `toModelInput`/`buildSystemPrompt` (`./bedrock/
+   * model-decider.ts`) sólo conocían la forma de `EligibilityResult` — un
+   * `DisputeVerificationResult` real le llegaba al modelo con un prompt que
+   * describía campos que no existían en el payload, empujándolo a ESCALATE
+   * por la regla de desempate ante ambigüedad, que después ganaba el
+   * guardrail por ser "más conservador". Este test prueba el wiring
+   * COMPLETO (`handler.ts` -> `toModelInput` -> `buildSystemPrompt` ->
+   * Bedrock) con un caso real de disputa sin sospecha de fraude: la regla
+   * (`auto-dispute-transaction-confirmed-no-fraud`) dice AUTO, y ahora que
+   * el modelo tiene contexto real del shape que está viendo, también
+   * propone AUTO (no un ESCALATE "a ciegas" por desconocer el payload). */
+  it("dispute post_action: transacción confirmada sin fraude -> el modelo (con prompt correcto) también propone AUTO, no escala a ciegas", async () => {
+    ssmRespondsWith("fake-model-id", "us-east-1");
+    bedrockRespondsWithDecision("AUTO", 0.85, "Transacción localizada, sin indicios de fraude.");
+
+    const handler = await loadHandlerWithBedrockConfigured();
+    const input = {
+      stage: "post_action" as const,
+      caseId: "case-dispute-1",
+      transactionFound: true,
+      transactionId: "TXN-000001",
+      fraudSuspected: false,
+      productBlocked: true,
+    };
+
+    const result = await handler(input);
+
+    expect(result.decision).toBe("AUTO");
+    expect(result.winningRuleId).toBe("auto-dispute-transaction-confirmed-no-fraud");
+    expect((result as { decisionSource?: string }).decisionSource).toBe("rules");
+
+    // El prompt enviado a Bedrock describe la forma real del payload
+    // (DisputeVerificationResult), no solo la de EligibilityResult.
+    const sentCommand = bedrockSend.mock.calls[0][0] as { input: { system?: Array<{ text?: string }> } };
+    const systemText = sentCommand.input.system?.[0]?.text ?? "";
+    expect(systemText).toContain("DisputeVerificationResult");
+    // El body enviado al modelo es el DisputeVerificationResult real (sin `stage`).
+    const userMessage = (sentCommand.input as unknown as { messages: Array<{ content: Array<{ text?: string }> }> })
+      .messages[0].content[0].text;
+    expect(userMessage).toContain("transactionFound");
+    expect(userMessage).not.toContain('"stage"');
+  });
+
   it("Bedrock configurado pero devuelve una decision fuera del enum válido -> resultado idéntico al de solo reglas", async () => {
     ssmRespondsWith("fake-model-id", "us-east-1");
     bedrockRespondsWithDecision("MAYBE");

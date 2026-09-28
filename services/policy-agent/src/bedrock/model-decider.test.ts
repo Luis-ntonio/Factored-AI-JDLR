@@ -150,4 +150,52 @@ describe("proposeModelDecision", () => {
 
     expect(result).toEqual({ decision: "ESCALATE", confidence: 1, reasoning: "" });
   });
+
+  /** Regresión: el prompt de sistema de `post_action` describía ÚNICAMENTE
+   * la forma de `EligibilityResult` -- un `DisputeVerificationResult` real
+   * (campos `transactionFound`/`fraudSuspected`/`productBlocked`, sin
+   * `productType`/`eligibility_score`/`score_zone`) le llegaba al modelo con
+   * un prompt que no coincidía con lo que veía, empujándolo a ESCALATE por
+   * la regla de desempate ante ambigüedad. Ver `buildSystemPrompt`. */
+  it("el prompt de post_action describe también la forma de DisputeVerificationResult (no solo EligibilityResult)", async () => {
+    const send = vi.fn().mockResolvedValue(toolUseResponse({ decision: "AUTO", confidence: 0.9, reasoning: "ok" }));
+
+    const disputeResult = {
+      caseId: "case-1",
+      transactionFound: true,
+      transactionId: "TXN-000001",
+      fraudSuspected: false,
+      productBlocked: true,
+    };
+
+    await proposeModelDecision(disputeResult, "post_action", {
+      bedrockClient: { send },
+      modelId: "fake-model",
+    });
+
+    const sentCommand = send.mock.calls[0][0] as { input: { system?: Array<{ text?: string }> } };
+    const systemText = sentCommand.input.system?.[0]?.text ?? "";
+    expect(systemText).toContain("DisputeVerificationResult");
+    expect(systemText).toContain("transactionFound");
+    expect(systemText).toContain("fraudSuspected");
+  });
+
+  /** Regresión: el prompt de sistema de `pre_action` listaba los intents
+   * válidos sin `dispute_unrecognized_charge` y no describía las entidades
+   * de disputa -- el modelo no tenía forma de reconocer ese intent/esas
+   * entidades como un caso conocido y de bajo riesgo. */
+  it("el prompt de pre_action reconoce el intent dispute_unrecognized_charge y sus entidades", async () => {
+    const send = vi.fn().mockResolvedValue(toolUseResponse({ decision: "AUTO", confidence: 0.9, reasoning: "ok" }));
+
+    await proposeModelDecision(sampleUnderstandOutput(), "pre_action", {
+      bedrockClient: { send },
+      modelId: "fake-model",
+    });
+
+    const sentCommand = send.mock.calls[0][0] as { input: { system?: Array<{ text?: string }> } };
+    const systemText = sentCommand.input.system?.[0]?.text ?? "";
+    expect(systemText).toContain("dispute_unrecognized_charge");
+    expect(systemText).toContain("disputed_amount");
+    expect(systemText).toContain("merchant");
+  });
 });

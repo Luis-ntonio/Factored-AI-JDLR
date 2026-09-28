@@ -4,7 +4,7 @@ import type {
   ConverseCommandOutput,
   ToolConfiguration,
 } from "@aws-sdk/client-bedrock-runtime";
-import type { EligibilityResult, UnderstandOutput } from "@banking-agent/shared";
+import type { DisputeVerificationResult, EligibilityResult, UnderstandOutput } from "@banking-agent/shared";
 import type { Decision } from "../types";
 
 /**
@@ -96,7 +96,7 @@ const TOOL_CONFIG: ToolConfiguration = {
  * detalle.
  */
 function buildSystemPrompt(stage: DecisionStage): string {
-  const common = `Sos el motor de decisión de riesgo de un agente bancario de IA para el flujo de información de productos de crédito y elegibilidad. Tu única tarea es proponer UNA decisión sobre cómo continuar con la solicitud del usuario, usando tu propio criterio de riesgo/negocio general -- no estás imitando ni memorizando un archivo de reglas interno, tu propuesta es una segunda opinión independiente que después se combina con una política determinística separada.
+  const common = `Sos el motor de decisión de riesgo de un agente bancario de IA. Este agente atiende DOS flujos distintos -- información de productos de crédito y elegibilidad, y disputa/desconocimiento de cargos -- y vos evaluás casos de cualquiera de los dos, según la forma del objeto que recibas (se te indica abajo cómo distinguirlos). Tu única tarea es proponer UNA decisión sobre cómo continuar con la solicitud del usuario, usando tu propio criterio de riesgo/negocio general -- no estás imitando ni memorizando un archivo de reglas interno, tu propuesta es una segunda opinión independiente que después se combina con una política determinística separada.
 
 Elegí exactamente una de estas tres decisiones:
 - AUTO: hay datos suficientes, es de bajo riesgo, se puede resolver automáticamente sin intervención humana.
@@ -106,6 +106,7 @@ Elegí exactamente una de estas tres decisiones:
 Reglas de desempate que debés aplicar vos mismo al elegir:
 - Si dudás entre AUTO y CLARIFY, elegí CLARIFY.
 - Si dudás entre CLARIFY y ESCALATE, elegí ESCALATE.
+Estas reglas de desempate son para AMBIGÜEDAD real sobre el riesgo del caso -- nunca uses ESCALATE solo porque el objeto recibido no coincide con la forma que esperabas: si ves campos que no reconocés, primero fijate si coinciden con alguna de las formas descritas abajo antes de asumir que el caso es riesgoso.
 
 Siempre invocá la herramienta ofrecida con tu decisión, tu nivel de confianza (0 a 1) y una razón breve. Nunca respondas en texto libre.`;
 
@@ -113,18 +114,19 @@ Siempre invocá la herramienta ofrecida con tu decisión, tu nivel de confianza 
     return `${common}
 
 El objeto que vas a recibir es un "UnderstandOutput": la interpretación que ya hizo otro agente del mensaje del usuario, ANTES de autorizar cualquier acción. Campos relevantes:
-- intent: qué quiere el usuario (product_info, eligibility_check, faq, escalation_request, unknown).
-- entities: datos que el usuario ya dio (ingreso, estado laboral, monto solicitado, documento de identidad, tipo de producto, si es cliente existente, etc.) -- un campo en null significa que todavía no se proveyó.
-- missing_fields: qué datos requeridos todavía faltan para el intent actual.
+- intent: qué quiere el usuario (product_info, eligibility_check, faq, dispute_unrecognized_charge, escalation_request, unknown).
+- entities: datos que el usuario ya dio. Para eligibility_check/product_info: ingreso, estado laboral, monto solicitado, documento de identidad, tipo de producto, si es cliente existente, etc. Para dispute_unrecognized_charge: disputed_amount (monto del cargo que el usuario no reconoce), merchant (comercio donde se hizo el cargo), transaction_date (fecha aproximada del cargo, texto libre tipo "ayer"/"la semana pasada" -- SOLO informativo, el sistema real busca la transacción por monto/comercio, nunca por esta fecha, así que una fecha vaga NUNCA es motivo para pedir un dato más preciso ni para dudar del caso), dispute_reason (por qué el usuario dice que no lo reconoce). Un campo en null significa que todavía no se proveyó.
+- missing_fields: qué datos requeridos todavía faltan para el intent actual -- esta es la única fuente confiable de "qué falta"; si está vacío, no falta nada, sin importar qué tan vago te parezca algún dato individual como transaction_date.
 - context: metadata del turno (por ejemplo si hubo un problema de infraestructura al leer el historial, o cuántos turnos previos hay).`;
   }
 
   return `${common}
 
-El objeto que vas a recibir es un "EligibilityResult": el resultado numérico ya calculado de una evaluación de elegibilidad crediticia para este usuario (no es el mensaje original del usuario). Campos relevantes:
-- productType: el producto de crédito evaluado.
-- eligibility_score: puntaje de elegibilidad en escala 0-100.
-- score_zone: zona de riesgo derivada del score ("approved", "borderline", "declined"). Un score en zona límite ("borderline") normalmente amerita revisión humana antes de comunicar el resultado al usuario.`;
+El objeto que vas a recibir es el resultado YA CALCULADO de una acción bancaria (no es el mensaje original del usuario), de UNA de estas dos formas posibles -- fijate qué campos están presentes para saber cuál es:
+
+1. "EligibilityResult" (evaluación de elegibilidad crediticia): tiene los campos productType (el producto de crédito evaluado), eligibility_score (puntaje 0-100) y score_zone (zona de riesgo derivada del score: "approved", "borderline", "declined"). Un score en zona límite ("borderline") normalmente amerita revisión humana antes de comunicar el resultado al usuario.
+
+2. "DisputeVerificationResult" (verificación de una disputa de cargo): tiene los campos transactionFound (si se localizó exactamente la transacción que el usuario disputa), fraudSuspected (si esa transacción tiene indicios reales de fraude), productBlocked (si ya se bloqueó preventivamente la tarjeta asociada) y opcionalmente transactionId. Como criterio de riesgo general: no encontrar la transacción (transactionFound: false) o sospecha de fraude (fraudSuspected: true) normalmente ameritan revisión humana antes de comunicar el resultado al usuario. En cambio, transactionFound: true con fraudSuspected: false es el caso de bajo riesgo por excelencia de este flujo -- en ese caso, productBlocked: true es simplemente la acción preventiva ESTÁNDAR, reversible y de bajo riesgo que ya se ejecutó (bloquear la tarjeta mientras se resuelve la disputa, igual que cualquier banco hace de forma rutinaria y automática ante un cargo no reconocido confirmado), NO una señal adicional de riesgo que amerite escalar -- no la trates como si fuera un bloqueo definitivo o una decisión de alto impacto todavía pendiente de aprobar.`;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -181,12 +183,14 @@ export interface ModelDeciderDeps {
 /**
  * Pide al modelo una propuesta de decisión para `input` (un
  * `UnderstandOutput` completo si `stage === "pre_action"`, o un
- * `EligibilityResult` completo si `stage === "post_action"`). Nunca lanza:
- * ante cualquier fallo tras agotar los reintentos, o una respuesta con
- * `decision` inválida, devuelve `null` ("no disponible").
+ * `EligibilityResult`/`DisputeVerificationResult` completo si
+ * `stage === "post_action"` -- cuál de los dos depende del intent que
+ * originó el caso, ver `buildSystemPrompt`). Nunca lanza: ante cualquier
+ * fallo tras agotar los reintentos, o una respuesta con `decision` inválida,
+ * devuelve `null` ("no disponible").
  */
 export async function proposeModelDecision(
-  input: UnderstandOutput | EligibilityResult,
+  input: UnderstandOutput | EligibilityResult | DisputeVerificationResult,
   stage: DecisionStage,
   deps: ModelDeciderDeps
 ): Promise<ModelProposal | null> {
