@@ -313,6 +313,20 @@ export type DegradedReason =
   | "none";
 
 /**
+ * Rol de sesión resuelto por conversation-agent a partir del `sessionToken`
+ * firmado (ver `services/auth-agent`) que puede venir en el body de
+ * `POST /chat`. Mapeo desde `Customer.segment` (real, confirmado contra el
+ * dataset del hackathon): `"Premium"` -> `cliente_estrella`, cualquier otro
+ * segment autenticado (`Basic`/`Plus`/`Student`) -> `cliente`. Sin token, o
+ * token inválido/expirado -> `anonimo`. `policies.yaml` referencia
+ * `context.role` para exigir sesión en intents sensibles
+ * (`eligibility_check`/`dispute_unrecognized_charge`) y para dar trato
+ * distinto a `cliente_estrella` (ver `escalate-dispute-amount-over-
+ * threshold-star`) -- nunca para `product_info`/`faq`, que siguen públicos.
+ */
+export type UserRole = "anonimo" | "cliente" | "cliente_estrella";
+
+/**
  * Metadata de sesión/caso y salud del pipeline para ESTE turno. No es
  * "negocio" (eso vive en `entities`) — es lo que policy-agent y
  * observabilidad necesitan para trazabilidad y para decidir cómo tratar un
@@ -348,6 +362,16 @@ export interface UnderstandContext {
 
   /** Cantidad de turnos previos (mensajes) considerados al reconstruir el contexto. */
   historyTurns: number;
+
+  /**
+   * Opcional a propósito (mismo criterio que toda extensión aditiva de este
+   * contrato, ver `Entities`) -- para no romper en compilación los literales
+   * `context` ya hardcodeados en tests existentes de otros servicios que no
+   * testean auth. En runtime real, conversation-agent SIEMPRE completa este
+   * campo con un valor concreto (`"anonimo"` si no hay sesión válida) -- solo
+   * queda `undefined` en fixtures de test que no le interesa ejercitar auth.
+   */
+  role?: UserRole;
 }
 
 /**
