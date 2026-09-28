@@ -18,6 +18,10 @@ colors:
   amber-caution-surface: "oklch(96% 0.04 85)"
   gold-premium: "oklch(75% 0.13 85)"
   gold-premium-surface: "oklch(94% 0.05 90)"
+  teal: "oklch(48% 0.09 200)"
+  teal-deep: "oklch(36% 0.08 200)"
+  teal-surface: "oklch(93% 0.03 200)"
+  terracotta-tint: "oklch(93% 0.04 40)"
 typography:
   hook:
     fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"
@@ -94,10 +98,26 @@ propia, repetido en decenas de miles de productos) y el violeta/azul-lavanda
 por defecto de los widgets de chat de IA — ninguno de los dos dice nada sobre
 *este* producto en particular.
 
+**Actualización (2026-09-28) — de Restrained a Full Palette:** la primera
+versión de este sistema era deliberadamente restringida (navy + un acento).
+Con la landing (`ProductShowcase.tsx`, la única superficie Persuade del
+sistema) se sube a **Full palette**: se agrega Teal como segunda familia de
+color -- **Identity**, no Acción ni Estado. Teal nunca aparece en un botón o
+control (Terracota sigue siendo el ÚNICO color de acción, The One Action
+Rule intacta) ni compite con los 4 colores de estado ya reservados
+(emerald/crimson/amber/gold) -- vive en fondos de sección grandes (el hero
+navy→teal de la landing), badges numerados de secuencia, y un detalle no
+funcional que conecta el widget con la landing (filete de 3px en el header
+del chat). El widget (Operate) se queda intencionalmente más restringido
+que la landing (Persuade) -- misma paleta, distinto grado de compromiso,
+coherente con qué modo tiene permiso de ser más audaz.
+
 **Key Characteristics:**
 - Navy profundo como color estructural dominante (headers, chrome, texto).
 - Terracota cálido como ÚNICO acento de acción — el mismo rol en todos lados
   (enviar, confirmar, links), nunca dos colores de acción compitiendo.
+- Teal como segunda familia de Identity -- fondos de sección grandes en la
+  landing, nunca un control interactivo.
 - Tarjetas de contenido planas con borde sutil; sombra real reservada
   exclusivamamente para lo que literalmente flota sobre la página (burbuja,
   panel del widget, modal).
@@ -140,6 +160,20 @@ otro color de marca — el resto son neutros.
 - **Borde Sutil** (`oklch(90% 0.01 255)`): borde de tarjetas planas.
 - **Tinta Muted** (`oklch(45% 0.02 255)`): texto secundario, timestamps,
   metadata (caseId, fuente de un dato).
+
+### Identity
+- **Teal** (`oklch(48% 0.09 200)`): segunda familia de color, agregada con
+  la landing -- fondo del hero (gradiente navy→teal), badges numerados de
+  "Cómo funciona", filete de 3px en el header del widget. NUNCA un botón,
+  control interactivo, ni un quinto significado de estado.
+- **Teal Profundo** (`oklch(36% 0.08 200)`): extremo oscuro del gradiente
+  del hero.
+- **Teal Superficie** (`oklch(93% 0.03 200)`): fondo claro de la sección
+  "Cómo funciona".
+- **Terracota Tinte** (`oklch(93% 0.04 40)`): no es un color nuevo -- una
+  extensión tonal de Terracota usada como color de borde en el hover de las
+  tarjetas de producto (conecta el hover con el único color de acción sin
+  convertirlo en un segundo color de acción).
 
 ### Named Rules
 **The Navy Shadow Rule.** Ninguna sombra en el sistema usa negro puro
@@ -292,17 +326,47 @@ corte duro de `display: none` a `block`), con
 `@media (prefers-reduced-motion: reduce)` reduciendo a un crossfade sin
 transform.
 
-### Vidriera de productos (`ProductShowcase.tsx`, app-shell)
-Única superficie Persuade del sistema — el resto es Operate. Hook (rol
-tipográfico nuevo, ver Typography) centrado arriba, grid de tarjetas de
-producto abajo (`repeat(auto-fit, minmax(380px, 1fr))`, 2 columnas parejas
-en desktop dentro del `max-width: 1040px` del contenedor, 1 columna en
-mobile). Cada tarjeta hereda el vocabulario de Cards/Containers de arriba
-(plana, Borde Sutil, `12px`) — nada nuevo ahí, solo contenido nuevo
-(nombre, tasa, monto, ingreso mínimo como una lista `dl` de hechos) y un
-botón "Lo quiero" que es exactamente un Button Primary. **The One Action
-Rule sigue aplicando acá**: "Lo quiero" es la única acción de cada tarjeta,
-terracota, sin competir con ningún otro color de acción en la página.
+### Landing (`ProductShowcase.tsx`, app-shell)
+Única superficie Persuade del sistema — el resto es Operate. Tres bandas de
+ritmo editorial, cada una con su propia entrada animada al montar (fade +
+`translateY(18px)`, `480ms`, nunca scroll-triggered con contenido oculto
+por defecto — ver Named Rule abajo):
+
+1. **Hero**: fondo `linear-gradient(135deg, navy, teal-deep)`, texto blanco,
+   Hook (rol tipográfico, ver Typography) + subtítulo centrados. Motivo
+   geométrico propio (un anillo fino de `1px`, sin blur/glow) en vez de
+   iconografía o fotografía — la generación de imágenes queda pendiente a
+   propósito (el usuario va a sumar un MCP de imágenes más adelante).
+2. **Cómo funciona**: fondo Teal Superficie, 3 pasos numerados (`1`/`2`/`3`
+   en badges circulares Teal) que describen el modelo REAL del sistema
+   (AUTO/CLARIFY/ESCALATE) — nunca una promesa de marketing inventada. Los
+   números están permitidos acá porque la secuencia SÍ importa (a
+   diferencia de un eyebrow "01" decorativo, prohibido en cualquier otro
+   lado).
+3. **Vidriera de productos**: grid de tarjetas (`repeat(auto-fit,
+   minmax(380px, 1fr))`, 2 columnas parejas en desktop dentro del
+   `max-width: 1040px` del contenedor, 1 columna en mobile). Cada tarjeta
+   hereda Cards/Containers (plana, Borde Sutil, `12px`) EN REPOSO — al
+   hover gana `translateY(-4px)`, borde Terracota Tinte, y
+   `--shadow-panel` (respuesta al estado, nunca decoración permanente,
+   mismo principio que la Flat-Card Rule original). Botón "Lo quiero" =
+   Button Primary exacto. **The One Action Rule sigue aplicando acá**: "Lo
+   quiero" es la única acción de cada tarjeta, terracota, sin competir con
+   ningún otro color de acción en la página (Teal nunca es clickeable).
+
+### Named Rules
+**The Visible-By-Default Rule.** Ninguna animación de entrada de la landing
+esconde contenido hasta que dispare (nada de `opacity: 0` sin animación
+como estado base persistente) — todas corren una sola vez al montar, con
+`prefers-reduced-motion` cayendo a un crossfade sin transform. Evita el
+problema real de contenido que nunca aparece si el JS falla o si una
+captura headless corre antes de que el scroll dispare el reveal.
+
+**Pendiente declarado (no una decisión final):** esta landing no usa
+fotografía ni ilustración todavía — el usuario va a incorporar un MCP de
+generación de imágenes más adelante. Cuando eso pase, revisar este archivo:
+la landing probablemente gane una sección de "plates" (ilustración por
+producto) que hoy no existe.
 
 ## Do's and Don'ts
 

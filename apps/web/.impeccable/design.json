@@ -93,9 +93,25 @@
         "role": "tertiary",
         "displayName": "Dorado Premium (cliente estrella)",
         "canonical": "oklch(75% 0.13 85)"
+      },
+      "teal": {
+        "role": "secondary",
+        "displayName": "Teal (Identity, nunca acción)",
+        "canonical": "oklch(48% 0.09 200)",
+        "tonalRamp": [
+          "oklch(18% 0.06 200)",
+          "oklch(28% 0.07 200)",
+          "oklch(36% 0.08 200)",
+          "oklch(48% 0.09 200)",
+          "oklch(60% 0.07 200)",
+          "oklch(75% 0.05 200)",
+          "oklch(87% 0.04 200)",
+          "oklch(93% 0.03 200)"
+        ]
       }
     },
     "typographyMeta": {
+      "hook": { "displayName": "Hook", "purpose": "Headline del hero de la landing -- única superficie Persuade del sistema." },
       "display": { "displayName": "Título", "purpose": "Nombre del widget en el header del chat." },
       "body": { "displayName": "Cuerpo", "purpose": "Texto de mensajes y tarjetas de contenido." },
       "label": { "displayName": "Label", "purpose": "Badges de idioma/rol, títulos de sección dentro de tarjetas." }
