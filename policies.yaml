@@ -143,6 +143,23 @@ security:
         no cambia esa retención en este checkpoint (no toca infra) — se deja
         registrado como pendiente de definir una política de retención real
         antes de producción (ver docs/STATUS.md, pilar Security).
+    - id: sec-no-raw-dispute-fields-in-reason
+      statement: >
+        Mismo criterio que `sec-no-raw-pii-in-reason`, extendido
+        explícitamente a las entities nuevas de `dispute_unrecognized_charge`
+        (packages/shared/src/contracts/understand-output.ts):
+        `entities.disputed_amount`, `entities.merchant` y
+        `entities.transaction_date` NUNCA deben aparecer interpolados en el
+        `reason` de una regla, en un log de decisión, ni en un payload hacia
+        escalation-agent en texto plano — ninguno de estos tres campos es PII
+        directa como `document_id`, pero `merchant`/`transaction_date` son
+        texto libre sin sanitizar (ver limitación documentada en
+        understand-output.ts: "sin normalizar") y podrían llevar contenido
+        no controlado si se interpolaran sin querer. Los `reason` de las
+        reglas nuevas de disputa en este archivo (ver sección `rules`, grupo
+        `dispute_unrecognized_charge`) son, verificado a mano, TEXTO ESTÁTICO
+        — ninguno usa plantilla (`{{...}}`) ni concatenación con el valor
+        real de una entity.
 
 # =============================================================================
 # CONFIG — umbrales de negocio, todos configurables (nunca hardcodeados en
@@ -157,6 +174,34 @@ config:
   # demo. Valor elegido como placeholder conservador de "monto alto para un
   # préstamo personal", a validar con negocio real.
   high_risk_amount_threshold: 50000
+
+  # Umbral de monto DISPUTADO (`entities.disputed_amount`, ver
+  # `dispute_unrecognized_charge` en understand-output.ts) por encima del
+  # cual se exige revisión humana antes de continuar con la investigación
+  # automática de la disputa.
+  #
+  # DECISIÓN EXPLÍCITA (pivot 2026-09-27, Tarea 4): se define un umbral
+  # PROPIO, separado de `high_risk_amount_threshold` de arriba, en vez de
+  # reutilizar el mismo número. Razón de negocio: un monto "alto" en el
+  # contexto de un PRÉSTAMO SOLICITADO (`eligibility_check`, una decisión de
+  # crédito nueva, todavía no ocurrió nada malo) y un monto "alto" en el
+  # contexto de un CARGO YA DISPUTADO (`dispute_unrecognized_charge`, un
+  # evento ya anómalo — el cliente está reportando algo que no reconoce o
+  # considera indebido, con potencial fraude en curso) no son comparables:
+  # el listón para escalar un cargo disputado grande debe ser MÁS BAJO,
+  # porque ya existe una señal de alarma y la ventana para actuar (bloquear
+  # la tarjeta) es más urgente que la de aprobar o no un préstamo. Reusar
+  # 50000 sistemáticamente sub-escalaría disputas grandes: el caso mock
+  # `TXN-000003` (services/transaction-agent/src/data/mock-core-banking.ts,
+  # $19,200 MXN, `is_fraud: true`, `fraud_score: 96.0`, compra en Miami con
+  # un cliente mexicano) quedaría por debajo de 50000 y no dispararía esta
+  # regla si se reutilizara ese umbral, a pesar de ser exactamente el caso
+  # que esta regla debería atrapar. Valor elegido como placeholder razonable
+  # (~30% del umbral de préstamo) para la demo, a validar con negocio real
+  # antes de producción — mismo criterio de "placeholder documentado" que el
+  # resto de este bloque `config`. Sin resolución de moneda (misma
+  # limitación ya declarada para `high_risk_amount_threshold`).
+  dispute_high_risk_amount_threshold: 15000
 
   # Zona límite de score de elegibilidad (CONFIRMADO, ver sección post_action
   # más abajo — services/transaction-agent lee estos dos valores directamente
@@ -227,6 +272,52 @@ rules:
       regla de negocio simulada: montos altos exceden el apetito de riesgo
       para aprobación 100% automática y requieren revisión humana antes de
       calcular elegibilidad.
+
+  - id: escalate-dispute-amount-over-threshold
+    stage: pre_action
+    when:
+      all:
+        - field: intent
+          op: eq
+          value: dispute_unrecognized_charge
+        - field: entities.disputed_amount
+          op: gt
+          value_ref: dispute_high_risk_amount_threshold
+    decision: ESCALATE
+    reason: >
+      El monto disputado (`entities.disputed_amount`) supera el umbral
+      configurable `config.dispute_high_risk_amount_threshold` (deliberadamente
+      distinto de `config.high_risk_amount_threshold` usado para
+      `eligibility_check` — ver el comentario extenso en el bloque `config`
+      sobre por qué un cargo disputado grande amerita un listón más bajo que
+      un préstamo solicitado). Un cargo disputado de monto alto requiere
+      revisión humana antes de continuar con la investigación automática,
+      independientemente de si el resto de `entities` está completo.
+
+  # NOTA — `is_repeat_complainer` (reclamante repetido) NO se implementa como
+  # regla acá. Evaluación explícita (Tarea 4, pivot 2026-09-27): el flujo de
+  # negocio del EDA (hacka-info/EDA_LATAM_Bank_resumen.md) pide escalar
+  # cuando "el cliente reclama seguido", pero hoy NO existe ninguna señal
+  # barata para eso en el contrato real:
+  #   - `UnderstandContext.historyTurns`
+  #     (packages/shared/src/contracts/understand-output.ts) solo cuenta
+  #     turnos DENTRO del MISMO `caseId` — no un conteo de disputas pasadas
+  #     del mismo cliente a través de MÚLTIPLES cases en el tiempo.
+  #   - Calcular reincidencia real requeriría una query nueva contra DynamoDB
+  #     por `customerId` (ej. contar cases previos con
+  #     `intent = dispute_unrecognized_charge` en una ventana de tiempo) que
+  #     NO existe todavía — es trabajo de infra/context-manager, fuera del
+  #     scope de esta tarea (que es 100% config-driven sobre el contrato ya
+  #     emitido por conversation-agent, sin agregar queries nuevas).
+  #   - No se inventa un campo nuevo en `Entities`/`UnderstandContext` para
+  #     esto acá (eso requeriría coordinar con conversation-agent, fuera de
+  #     scope de policy-agent).
+  # Conclusión: esta regla queda EXPLÍCITAMENTE PENDIENTE, documentada como
+  # limitación conocida (ver también sección final de este archivo), no como
+  # un descuido. Cuando exista esa señal (ej. un campo
+  # `context.priorDisputeCount` producido por un context-manager extendido),
+  # agregar una regla `escalate-dispute-repeat-complainer` con el mismo
+  # patrón que las demás reglas ESCALATE de este bloque.
 
   # --- CLARIFY ------------------------------------------------------------
 
@@ -361,6 +452,102 @@ rules:
       Este turno debe quedar logueado/observable como "confianza reducida"
       (coordinar con verification-agent, no implementado acá).
 
+  - id: clarify-dispute-missing-fields
+    stage: pre_action
+    when:
+      all:
+        - field: intent
+          op: eq
+          value: dispute_unrecognized_charge
+        - field: missing_fields
+          op: not_empty
+    decision: CLARIFY
+    # Orden de prioridad, mismo mecanismo que
+    # `clarify-eligibility-missing-fields` (el evaluador toma el primer
+    # elemento de esta lista que también esté presente en `missing_fields`).
+    # REQUIRED_ENTITIES_BY_INTENT.dispute_unrecognized_charge
+    # (understand-output.ts) = ["product_type", "document_id"] — son los
+    # ÚNICOS dos campos que pueden aparecer en `missing_fields` para este
+    # intent (ver esa matriz para por qué `disputed_amount`/`merchant`/
+    # `transaction_date` NUNCA aparecen ahí, aunque falten los tres — eso lo
+    # cubre la regla `clarify-dispute-no-transaction-clue` de abajo).
+    # Justificación del orden:
+    #   1. product_type — sin saber qué tarjeta/producto está en juego no se
+    #      puede acotar la búsqueda de transacciones por `product_id`
+    #      (ver services/transaction-agent/src/data/mock-core-banking.ts,
+    #      `Product.product_id`/`Transaction.product_id`) ni confirmar si es
+    #      un producto bloqueable (`CARD_PRODUCT_TYPES` en ese mismo mock).
+    #      Baja fricción, no es PII — mismo criterio que
+    #      `clarify-eligibility-missing-fields`.
+    #   2. document_id — dato sensible (PII, ver sección `security`); se pide
+    #      DESPUÉS de saber el producto, mismo criterio de secuenciar PII al
+    #      final que ya usa `clarify-eligibility-missing-fields`.
+    ask_field_priority:
+      - product_type
+      - document_id
+    reason: >
+      Faltan uno o más `entities` requeridos por
+      REQUIRED_ENTITIES_BY_INTENT.dispute_unrecognized_charge
+      (packages/shared/src/contracts/understand-output.ts): `product_type`
+      y/o `document_id`. Se pregunta el primero de `ask_field_priority` que
+      esté presente en `missing_fields`.
+
+  - id: clarify-dispute-no-transaction-clue
+    stage: pre_action
+    when:
+      all:
+        - field: intent
+          op: eq
+          value: dispute_unrecognized_charge
+        - field: missing_fields
+          op: empty
+        - field: entities.disputed_amount
+          op: empty
+        - field: entities.merchant
+          op: empty
+        - field: entities.transaction_date
+          op: empty
+    decision: CLARIFY
+    # IMPORTANTE — por qué `ask_field` fijo y no `ask_field_priority`: el
+    # mecanismo `ask_field_priority` del evaluador (services/policy-agent/
+    # src/evaluator.ts, `pickAskField`) cruza la lista contra
+    # `missing_fields`, y `disputed_amount`/`merchant`/`transaction_date`
+    # NUNCA aparecen en `missing_fields` (no forman parte de
+    # REQUIRED_ENTITIES_BY_INTENT.dispute_unrecognized_charge — ver el
+    # comentario extenso en understand-output.ts sobre por qué esta regla OR
+    # se implementa acá y no en esa matriz). Por eso se usa `ask_field` único.
+    #
+    # Criterio para elegir `merchant` como el campo a pedir primero (de los
+    # tres, documentado a propósito porque es una decisión propia): es la
+    # señal de mayor especificidad para localizar la transacción real —
+    # matchea directamente contra `Transaction.merchant_name` en
+    # services/transaction-agent/src/data/mock-core-banking.ts. En cambio
+    # `transaction_date` suele venir en texto vago sin parseo real
+    # ("ayer"/"la semana pasada", ver limitación explícita documentada en
+    # `Entities.transaction_date` de understand-output.ts), y
+    # `disputed_amount` solo — sin fecha ni comercio — puede matchear varias
+    # transacciones del mismo cliente con igual monto (ver, por ejemplo, los
+    # múltiples cargos de $Netflix/streaming de montos similares en el mock).
+    # El copy final hacia el usuario (fuera de este archivo, responsabilidad
+    # de conversation-agent) puede optar por pedir los tres a la vez en una
+    # sola pregunta; acá solo se documenta cuál priorizar si hay que elegir
+    # uno.
+    ask_field: merchant
+    reason: >
+      Regla ADICIONAL de policy-agent, más estricta que
+      REQUIRED_ENTITIES_BY_INTENT (que para este intent solo exige
+      `product_type` + `document_id`, semántica AND) — mismo patrón ya usado
+      hoy en `clarify-eligibility-document-type-not-explicit`. La regla de
+      negocio real (ver EDA del dataset LATAM Bank) exige, además, al menos
+      UNA pista concreta de la transacción disputada
+      (`entities.disputed_amount` y/o `entities.merchant` y/o
+      `entities.transaction_date`) para poder empezar a buscarla contra
+      `transactions`/`products` reales — el EDA descartó `complaints` como
+      fuente verificable (0 de 44,570 productos reclamados pertenecen al
+      cliente que reclama). Sin ninguna de las tres, `product_type` +
+      `document_id` identifican AL CLIENTE pero no acotan CUÁL transacción
+      de ese cliente está en disputa.
+
   # --- AUTO -----------------------------------------------------------
 
   - id: auto-faq-always
@@ -413,6 +600,42 @@ rules:
       también matchea el mismo turno, esa regla gana por el modelo
       "más conservador gana" descrito en `evaluation_semantics`. Ver ese
       bloque para el ejemplo completo.
+
+  - id: auto-dispute-complete
+    stage: pre_action
+    when:
+      all:
+        - field: intent
+          op: eq
+          value: dispute_unrecognized_charge
+        - field: missing_fields
+          op: empty
+        - any:
+            - field: entities.disputed_amount
+              op: not_empty
+            - field: entities.merchant
+              op: not_empty
+            - field: entities.transaction_date
+              op: not_empty
+    decision: AUTO
+    reason: >
+      `product_type` + `document_id` presentes
+      (REQUIRED_ENTITIES_BY_INTENT.dispute_unrecognized_charge) Y al menos
+      una pista concreta de la transacción disputada disponible
+      (`entities.disputed_amount`/`entities.merchant`/
+      `entities.transaction_date`, regla OR-adicional de
+      `clarify-dispute-no-transaction-clue`) — datos mínimos suficientes para
+      autorizar el paso a un futuro Act que busque/verifique la transacción
+      real contra `transactions`/`products` (ese Act NO existe todavía — ver
+      la sección de propuesta `dispute_post_action_*` más abajo,
+      explícitamente NO CONFIRMADA). Esta regla existe para que
+      `evaluatePreAction` cubra TODOS los estados posibles de este intent
+      (mismo motivo que sostiene `default_when_no_rule_matches: ESCALATE`
+      como red de seguridad, no como camino esperado). NO excluye a
+      propósito el caso de excepción de monto alto
+      (`escalate-dispute-amount-over-threshold`) — si ambas matchean, gana
+      ESCALATE por el modelo "más conservador gana" (ver
+      `evaluation_semantics`), mismo patrón que `auto-eligibility-complete`.
 
 # =============================================================================
 # stage: post_action — contrato CONFIRMADO con transaction-agent
@@ -537,6 +760,144 @@ post_action_rules:
       escalation-agent/legal, no cubierta en este checkpoint.
 
 # =============================================================================
+# stage: post_action — PROPUESTA para dispute_unrecognized_charge
+# (Tarea 4 del pivot 2026-09-27) — NO CONFIRMADO, NO CONECTADO AL EVALUADOR
+# =============================================================================
+#
+# SEPARACIÓN EXPLÍCITA de la sección `post_action_rules` de arriba: ESA
+# sección sigue CONFIRMADA para `eligibility_check`/`EligibilityResult` y NO
+# se toca acá. Este bloque nuevo es conceptualmente análogo (mismo propósito:
+# reglas de negocio sobre el RESULTADO de un futuro Act), pero para el flujo
+# nuevo de disputa de cargos, y usa nombres de clave DISTINTOS a propósito:
+# `dispute_post_action_contract_status` / `dispute_post_action_open_questions`
+# / `dispute_post_action_rules_proposal`, en vez de reutilizar
+# `post_action_contract_status`/`post_action_rules`. Dos razones:
+#   1. YAML no admite dos claves top-level con el mismo nombre — la clave
+#      `post_action_rules` ya existe arriba, CONFIRMADA, y no se sobrescribe.
+#   2. `PolicyFile` (services/policy-agent/src/types.ts) NO declara estas
+#      claves nuevas, y `evaluateStage`/`evaluatePostAction`
+#      (services/policy-agent/src/evaluator.ts) SOLO leen literalmente
+#      `policy.post_action_rules` — por diseño, este bloque de abajo NO se
+#      evalúa en runtime todavía. Es documentación auditable de una
+#      PROPUESTA, exactamente el mismo estado en el que estuvo la sección de
+#      eligibility antes de que transaction-agent confirmara su contrato
+#      (ver docs/PLAN.md, secciones "Decisiones y limitaciones registradas —
+#      Días 2-3 (Understand + Decide)" y "... Días 3-5 (policy-agent,
+#      confirmación del contrato)" para el precedente exacto de este mismo
+#      patrón: ahí también se dejó `post_action_contract_status:
+#      PROPOSAL_NOT_CONFIRMED` con un borrador de reglas hasta que
+#      transaction-agent confirmó el contrato real).
+#
+# Por qué esta fase (Tarea 4) NO puede confirmar el contrato: la sospecha de
+# fraude sobre una disputa solo puede evaluarse DESPUÉS de que un futuro
+# Lambda "Act" de disputa (fase siguiente, NO implementada todavía — no
+# existe ni ese Lambda ni el contrato de su resultado) busque/verifique la
+# transacción real contra `transactions`/`products`
+# (services/transaction-agent/src/data/mock-core-banking.ts). Esta sección
+# deja el terreno preparado y las preguntas explícitas que esa fase debe
+# resolver, en vez de inventar el contrato acá.
+#
+dispute_post_action_contract_status: PROPOSAL_NOT_CONFIRMED
+
+dispute_post_action_open_questions:
+  - question: >
+      (a) Nombre y shape EXACTO del contrato de resultado de verificación de
+      disputa (análogo a `EligibilityResult` de
+      packages/shared/src/contracts/eligibility-result.ts). Nombre tentativo,
+      NO decidido acá: `DisputeVerificationResult`. Campos candidatos, a
+      definir por quien construya el Act (no se decide cuáles de estos, sus
+      nombres finales, ni si todos son necesarios):
+        - `transactionFound: boolean` — si se pudo localizar una transacción
+          real del cliente que matchee las pistas dadas
+          (`disputed_amount`/`merchant`/`transaction_date`).
+        - `fraudSuspected: boolean` y/o `fraud_score: number` — el mock de
+          transaction-agent (services/transaction-agent/src/data/
+          mock-core-banking.ts, interface `Transaction`) YA tiene ambas
+          señales disponibles hoy (`is_fraud: boolean` y `fraud_score?:
+          number`, DECIMAL(5,2) rango 0-100 documentado ahí); cuál de las
+          dos (o ambas) expone el contrato de resultado final es decisión de
+          esa fase futura, no de esta.
+        - Posibles campos adicionales no anticipados acá (ej. `caseId`,
+          `transactionId` encontrado, `productBlocked: boolean`) — abierto.
+  - question: >
+      (b) Si el contrato expone `fraud_score` numérico (en vez de, o además
+      de, un boolean `fraudSuspected`), ¿qué umbral dispara ESCALATE? El mock
+      de transaction-agent usa `fraud_score: 96.0` para su único caso
+      `is_fraud: true` (TXN-000003, compra en Miami de un cliente mexicano) y
+      valores entre 0.5 y 4.2 para el resto (claramente no-fraude) — sugiere
+      que un umbral alto (ej. > 50 sobre 100) sería razonable, pero esto es
+      una OBSERVACIÓN del mock, NO una decisión de negocio validada; queda
+      abierto para quien confirme el contrato, mismo criterio con el que se
+      dejó abierta la escala de `eligibility_score` hasta que
+      transaction-agent la confirmó.
+  - question: >
+      (c) Correlación por `caseId`/`turnId`: la hipótesis de trabajo es que
+      aplica el MISMO mecanismo ya confirmado para eligibility (partición
+      `pk = CASE#<caseId>` en la tabla real `banking-agent-dev-case-store`,
+      `sk = RESULT#dispute#<turnId>` análogo a
+      `RESULT#eligibility#<turnId>`) — pero esto NO está confirmado acá; queda
+      para quien implemente el Act de disputa validarlo contra la infra real.
+
+# Reglas PROPUESTAS (borrador, NO evaluadas en runtime — ver banner arriba).
+# Se dejan como punto de partida legible para la fase siguiente, mismo estilo
+# que las reglas ya confirmadas de este archivo. Usan nombres de campo
+# TENTATIVOS (`transactionFound`, `fraudSuspected`) que dependen de que la
+# pregunta (a) de arriba se resuelva con esos nombres exactos — si el
+# contrato real usa otros nombres, este borrador debe reescribirse, no solo
+# renombrarse campo por campo.
+dispute_post_action_rules_proposal:
+
+  - id: escalate-dispute-fraud-suspected  # BORRADOR — id no de producción
+    stage: post_action
+    when:
+      all:
+        - field: fraudSuspected
+          op: eq
+          value: true
+    decision: ESCALATE
+    reason: >
+      BORRADOR. Sospecha de fraude confirmada por el Act de verificación de
+      disputa (contrato aún no confirmado, ver
+      dispute_post_action_open_questions) — requiere revisión humana antes
+      de comunicar cualquier resultado o cerrar la disputa automáticamente.
+
+  - id: escalate-dispute-transaction-not-found  # BORRADOR
+    stage: post_action
+    when:
+      all:
+        - field: transactionFound
+          op: eq
+          value: false
+    decision: ESCALATE
+    reason: >
+      BORRADOR. No se pudo localizar ninguna transacción real del cliente que
+      coincida con las pistas dadas (`disputed_amount`/`merchant`/
+      `transaction_date`). Recordar que `complaints` no es fuente verificable
+      (EDA del dataset LATAM Bank) y que la única fuente válida es
+      `transactions`/`products` reales — si no matchea nada ahí, no se puede
+      autorizar bloqueo de tarjeta ni apertura de disputa sin revisión
+      humana.
+
+  - id: auto-dispute-transaction-confirmed-no-fraud  # BORRADOR
+    stage: post_action
+    when:
+      all:
+        - field: transactionFound
+          op: eq
+          value: true
+        - field: fraudSuspected
+          op: eq
+          value: false
+    decision: AUTO
+    reason: >
+      BORRADOR. Transacción real localizada y sin sospecha de fraude — se
+      autorizaría bloquear la tarjeta y abrir la disputa sin intervención
+      humana adicional. NO CONFIRMADO: falta validar si "bloquear tarjeta"
+      debe ser siempre AUTO incluso sin fraude, o si negocio quiere aplicar
+      también acá un umbral de monto (ej. reusar
+      `config.dispute_high_risk_amount_threshold`) — abierto.
+
+# =============================================================================
 # LIMITACIONES CONOCIDAS DE ESTE ARCHIVO (ver también docs/STATUS.md)
 # =============================================================================
 # - No hay validación automática de que los `field:` usados acá existan
@@ -573,3 +934,19 @@ post_action_rules:
 #   confirma consistencia interna de `score_zone`), pero nada vuelve a
 #   invocar `evaluatePostAction` sobre ese resultado en producción hoy —
 #   ver docs/STATUS.md, sección P0, "Riesgo conocido".
+# - `dispute_unrecognized_charge` (Tarea 4, pivot 2026-09-27): las reglas
+#   `stage: pre_action` (grupo escalate-dispute-*/clarify-dispute-*/
+#   auto-dispute-complete) sí son ejecutables hoy contra un `UnderstandOutput`
+#   real, mismo mecanismo que el resto de este archivo. Lo que NO existe
+#   todavía es el Act de disputa (Lambda que busque/verifique la transacción
+#   real) ni su contrato de resultado — ver la sección
+#   `dispute_post_action_contract_status: PROPOSAL_NOT_CONFIRMED` más arriba,
+#   con las 3 preguntas abiertas explícitas para esa fase futura.
+# - `is_repeat_complainer` (reincidencia de reclamos) NO tiene regla en este
+#   archivo, a propósito. `UnderstandContext.historyTurns` solo cuenta turnos
+#   dentro del MISMO `caseId`, no disputas pasadas del mismo cliente a través
+#   de múltiples cases en el tiempo — esa señal requeriría una query nueva
+#   contra DynamoDB por `customerId` que no existe todavía (trabajo de
+#   infra/context-manager, fuera de esta tarea). Ver el comentario extenso
+#   junto a `escalate-dispute-amount-over-threshold` para el detalle completo
+#   de esta evaluación.

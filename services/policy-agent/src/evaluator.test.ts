@@ -35,6 +35,10 @@ function emptyEntities(): UnderstandOutput["entities"] {
     document_type: null,
     product_type: null,
     existing_customer: null,
+    disputed_amount: null,
+    merchant: null,
+    transaction_date: null,
+    dispute_reason: null,
   };
 }
 
@@ -70,6 +74,7 @@ describe("policy-agent evaluator", () => {
       intent: "eligibility_check",
       language: "pt",
       entities: {
+        ...emptyEntities(),
         income: 3000,
         employment_status: "employed",
         requested_amount: 8000,
@@ -128,6 +133,7 @@ describe("policy-agent evaluator", () => {
       intent: "eligibility_check",
       language: "es",
       entities: {
+        ...emptyEntities(),
         income: 500,
         employment_status: "unemployed",
         requested_amount: 1000,
@@ -151,6 +157,7 @@ describe("policy-agent evaluator", () => {
       intent: "eligibility_check",
       language: "es",
       entities: {
+        ...emptyEntities(),
         income: 5000,
         employment_status: "employed",
         requested_amount: 999999,
@@ -172,6 +179,7 @@ describe("policy-agent evaluator", () => {
       intent: "eligibility_check",
       language: "es",
       entities: {
+        ...emptyEntities(),
         income: 2000,
         employment_status: "employed",
         requested_amount: 3000,
@@ -194,6 +202,7 @@ describe("policy-agent evaluator", () => {
       intent: "eligibility_check",
       language: "es",
       entities: {
+        ...emptyEntities(),
         income: 2000,
         employment_status: "employed",
         requested_amount: 3000,
@@ -208,6 +217,95 @@ describe("policy-agent evaluator", () => {
     const result = evaluatePreAction(input, policy);
     expect(result.decision).toBe("CLARIFY");
     expect(result.winningRuleId).toBe("clarify-eligibility-degraded-context");
+  });
+
+  it("dispute_unrecognized_charge con document_id faltante (product_type presente) -> CLARIFY / clarify-dispute-missing-fields / askField=document_id", () => {
+    const input: UnderstandOutput = {
+      intent: "dispute_unrecognized_charge",
+      language: "es",
+      entities: {
+        ...emptyEntities(),
+        product_type: "credit_card",
+        document_id: null,
+      },
+      missing_fields: ["document_id"],
+      context: baseContext(),
+    };
+    const result = evaluatePreAction(input, policy);
+    expect(result.decision).toBe("CLARIFY");
+    expect(result.winningRuleId).toBe("clarify-dispute-missing-fields");
+    // product_type ya está dado -> según ask_field_priority
+    // [product_type, document_id], el siguiente pendiente es "document_id".
+    expect(result.askField).toBe("document_id");
+  });
+
+  it("dispute_unrecognized_charge con product_type/document_id presentes pero sin ninguna pista de transacción -> CLARIFY / clarify-dispute-no-transaction-clue / askField=merchant", () => {
+    const input: UnderstandOutput = {
+      intent: "dispute_unrecognized_charge",
+      language: "es",
+      entities: {
+        ...emptyEntities(),
+        product_type: "credit_card",
+        document_id: "12345678",
+        disputed_amount: null,
+        merchant: null,
+        transaction_date: null,
+      },
+      missing_fields: [],
+      context: baseContext(),
+    };
+    const result = evaluatePreAction(input, policy);
+    expect(result.decision).toBe("CLARIFY");
+    expect(result.winningRuleId).toBe("clarify-dispute-no-transaction-clue");
+    expect(result.askField).toBe("merchant");
+  });
+
+  it("dispute_unrecognized_charge completo (mínimo + al menos una pista de transacción, monto bajo el umbral) -> AUTO / auto-dispute-complete", () => {
+    const threshold = Number(policy.config.dispute_high_risk_amount_threshold);
+    expect(threshold).toBeGreaterThan(0);
+    const input: UnderstandOutput = {
+      intent: "dispute_unrecognized_charge",
+      language: "es",
+      entities: {
+        ...emptyEntities(),
+        product_type: "credit_card",
+        document_id: "12345678",
+        disputed_amount: threshold - 1,
+        merchant: "Netflix",
+        transaction_date: null,
+      },
+      missing_fields: [],
+      context: baseContext(),
+    };
+    const result = evaluatePreAction(input, policy);
+    expect(result.decision).toBe("AUTO");
+    expect(result.winningRuleId).toBe("auto-dispute-complete");
+  });
+
+  it("dispute_unrecognized_charge con disputed_amount sobre config.dispute_high_risk_amount_threshold -> ESCALATE (gana sobre AUTO)", () => {
+    const threshold = Number(policy.config.dispute_high_risk_amount_threshold);
+    const input: UnderstandOutput = {
+      intent: "dispute_unrecognized_charge",
+      language: "es",
+      entities: {
+        ...emptyEntities(),
+        product_type: "credit_card",
+        document_id: "12345678",
+        disputed_amount: threshold + 1,
+        merchant: "Comercio Sospechoso",
+        transaction_date: null,
+      },
+      missing_fields: [],
+      context: baseContext(),
+    };
+    const result = evaluatePreAction(input, policy);
+    expect(result.decision).toBe("ESCALATE");
+    // También matchea auto-dispute-complete (mínimo completo + pista de
+    // transacción), pero ESCALATE gana por el modelo "más conservador
+    // gana" ya usado en la regla equivalente de eligibility_check.
+    expect(result.matchedRules.map((m) => m.id)).toContain("auto-dispute-complete");
+    expect(result.matchedRules.map((m) => m.id)).toContain("escalate-dispute-amount-over-threshold");
+    expect(result.winningRuleId).toBe("escalate-dispute-amount-over-threshold");
   });
 
   it("faq siempre AUTO", () => {
