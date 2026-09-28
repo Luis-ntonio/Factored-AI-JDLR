@@ -29,6 +29,32 @@ export function buildUserRequestSummary(intent: Intent, entities: Entities, lang
         typeof entities.requested_amount === "number" ? ` de ${entities.requested_amount}` : "";
       return `El usuario pidió evaluar elegibilidad para ${product}${amount}.`;
     }
+    case "dispute_unrecognized_charge": {
+      const merchant = typeof entities.merchant === "string" && entities.merchant.trim() !== "" ? entities.merchant.trim() : null;
+      const amount = typeof entities.disputed_amount === "number" ? entities.disputed_amount : null;
+      if (language === "pt") {
+        if (merchant && amount !== null) {
+          return `O usuário reportou uma cobrança que não reconhece em ${merchant}, no valor de ${amount}.`;
+        }
+        if (merchant) {
+          return `O usuário reportou uma cobrança que não reconhece em ${merchant}.`;
+        }
+        if (amount !== null) {
+          return `O usuário reportou uma cobrança que não reconhece, no valor de ${amount}.`;
+        }
+        return "O usuário reportou uma cobrança não reconhecida ou indevida na sua conta/cartão.";
+      }
+      if (merchant && amount !== null) {
+        return `El usuario reportó un cargo que no reconoce en ${merchant} por un monto de ${amount}.`;
+      }
+      if (merchant) {
+        return `El usuario reportó un cargo que no reconoce en ${merchant}.`;
+      }
+      if (amount !== null) {
+        return `El usuario reportó un cargo que no reconoce por un monto de ${amount}.`;
+      }
+      return "El usuario reportó un cargo no reconocido o indebido en su cuenta/tarjeta.";
+    }
     case "product_info": {
       if (language === "pt") {
         return `O usuário perguntou sobre informações/condições de ${product}.`;

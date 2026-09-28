@@ -311,6 +311,100 @@ describe("buildEscalationSummary — language: pt (cobertura de idioma cliente-f
   });
 });
 
+describe("buildEscalationSummary — intent: dispute_unrecognized_charge (transaction-dispute intake)", () => {
+  it("origin policy_decision: attemptedActions vacío, userRequestSummary interpola merchant/monto, knownEntities sin document_id", () => {
+    const understand = makeUnderstand({
+      intent: "dispute_unrecognized_charge",
+      entities: {
+        ...emptyEntities(),
+        document_id: "87654321",
+        document_type: "DNI",
+        merchant: "Amazon",
+        disputed_amount: 150,
+        transaction_date: "ayer",
+        dispute_reason: "unrecognized_charge",
+      },
+    });
+    const summary = buildEscalationSummary({
+      origin: "policy_decision",
+      understand,
+      policyDecision: {
+        decision: "ESCALATE",
+        matchedRules: [{ id: "escalate-dispute-fraud-suspected", decision: "ESCALATE" }],
+        winningRuleId: "escalate-dispute-fraud-suspected",
+        reason: "Posible sospecha de fraude según reglas de negocio de disputa de cargo.",
+      },
+    });
+
+    expect(summary.origin).toBe("policy_decision");
+    expect(summary.attemptedActions).toEqual([]);
+    expect(summary.userRequestSummary).toContain("Amazon");
+    expect(summary.userRequestSummary).toContain("150");
+    expect(summary.knownEntities).not.toHaveProperty("document_id");
+    expect(summary.knownEntities.merchant).toBe("Amazon");
+    expect(summary.knownEntities.disputed_amount).toBe(150);
+    expect(summary.knownEntities.dispute_reason).toBe("unrecognized_charge");
+    expect(summary.unresolvedReason).toContain("fraude");
+    expect(summary.pendingQuestion).toBeTruthy();
+  });
+
+  it("origin verification_failed: attemptedActions menciona transaction-agent/verification-agent, pendingQuestion accionable", () => {
+    const understand = makeUnderstand({
+      intent: "dispute_unrecognized_charge",
+      entities: { ...emptyEntities(), merchant: "una tienda desconocida", disputed_amount: 80 },
+    });
+    const summary = buildEscalationSummary({
+      origin: "verification_failed",
+      understand,
+      attemptedAction: {
+        intent: "dispute_unrecognized_charge",
+        verification: {
+          status: "pending_confirmation",
+          verified: false,
+          reason: "No se pudo confirmar de forma independiente la transacción reportada por el cliente.",
+          data: { caseId: "case-123" },
+        },
+      },
+    });
+
+    expect(summary.origin).toBe("verification_failed");
+    expect(summary.attemptedActions).toHaveLength(1);
+    expect(summary.attemptedActions[0]).toContain("transaction-agent");
+    expect(summary.attemptedActions[0]).toContain("verification-agent");
+    expect(summary.unresolvedReason).toContain("No se pudo confirmar");
+    expect(summary.pendingQuestion).toContain("transacción disputada");
+    expect(summary.knownEntities).not.toHaveProperty("document_id");
+  });
+
+  it("origin post_action_decision: attemptedActions menciona los tres agentes, knownEntities completo sin document_id", () => {
+    const understand = makeUnderstand({
+      intent: "dispute_unrecognized_charge",
+      entities: { ...emptyEntities(), merchant: "Amazon", disputed_amount: 500 },
+    });
+    const summary = buildEscalationSummary({
+      origin: "post_action_decision",
+      understand,
+      policyDecision: {
+        decision: "ESCALATE",
+        matchedRules: [{ id: "escalate-dispute-amount-over-threshold", decision: "ESCALATE" }],
+        winningRuleId: "escalate-dispute-amount-over-threshold",
+        reason: "El monto disputado supera el umbral configurable para aprobación automática.",
+      },
+    });
+
+    expect(summary.origin).toBe("post_action_decision");
+    expect(summary.attemptedActions).toHaveLength(1);
+    expect(summary.attemptedActions[0]).toContain("transaction-agent");
+    expect(summary.attemptedActions[0]).toContain("verification-agent");
+    expect(summary.attemptedActions[0]).toContain("policy-agent");
+    expect(summary.unresolvedReason).toContain("supera el umbral");
+    expect(summary.pendingQuestion).toBeTruthy();
+    expect(summary.knownEntities.merchant).toBe("Amazon");
+    expect(summary.knownEntities.disputed_amount).toBe(500);
+    expect(summary.knownEntities).not.toHaveProperty("document_id");
+  });
+});
+
 describe("buildEscalationSummary — origin desconocido", () => {
   it("se normaliza a policy_decision de forma conservadora (attemptedActions: [])", () => {
     const understand = makeUnderstand({ intent: "faq" });

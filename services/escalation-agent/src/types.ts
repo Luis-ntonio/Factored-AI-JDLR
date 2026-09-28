@@ -30,7 +30,7 @@ export interface PolicyDecisionResultLike {
  * `services/verification-agent/src/types.ts` -- `escalation_request` y
  * `unknown` nunca llegan a "Act", así que nunca aparecen acá.
  */
-export type AttemptedActionIntent = "product_info" | "faq" | "eligibility_check";
+export type AttemptedActionIntent = "product_info" | "faq" | "eligibility_check" | "dispute_unrecognized_charge";
 
 /** Presente cuando `origin === "verification_failed"`: qué acción se
  * intentó y el `VerificationResult` completo (`status: "pending_confirmation"`

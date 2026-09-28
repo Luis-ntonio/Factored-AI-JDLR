@@ -117,4 +117,39 @@ describe("Security — entities.document_id crudo nunca se filtra", () => {
     assertNeverLeaksRawDocumentId(result);
     expect(result.maskedDocumentId).toBe("*******8900");
   });
+
+  it("intent: dispute_unrecognized_charge — document_id envenenado nunca aparece en ningún campo del EscalationSummary", () => {
+    const understand = makeUnderstand({
+      intent: "dispute_unrecognized_charge",
+      entities: {
+        ...emptyEntities(),
+        document_id: RAW_DOCUMENT_ID,
+        document_type: "DNI",
+        merchant: "Amazon",
+        disputed_amount: 150,
+        transaction_date: "ayer",
+        dispute_reason: "unrecognized_charge",
+      },
+    });
+    const summary = buildEscalationSummary({
+      origin: "verification_failed",
+      understand,
+      attemptedAction: {
+        intent: "dispute_unrecognized_charge",
+        verification: {
+          status: "pending_confirmation",
+          verified: false,
+          // Caso adversarial deliberado, mismo patrón que el resto del archivo:
+          // un `reason` mal formado que SÍ incluyera el valor crudo.
+          reason: `no se pudo confirmar la transacción para el documento ${RAW_DOCUMENT_ID}`,
+          data: { caseId: "case-123" },
+        },
+      },
+    });
+
+    assertNeverLeaksRawDocumentId(summary);
+    expect(summary.maskedDocumentId).toBe("*******8900");
+    expect(summary.knownEntities).not.toHaveProperty("document_id");
+    expect(summary.unresolvedReason).not.toContain(RAW_DOCUMENT_ID);
+  });
 });

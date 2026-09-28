@@ -25,7 +25,12 @@ const DEFAULT_POST_ACTION_REASON =
  * `origin === "post_action_decision"` (hoy es el único caso real, pero esta
  * función degrada de forma segura si no lo fuera). */
 function asAttemptedActionIntent(intent: string): AttemptedActionIntent | undefined {
-  return intent === "product_info" || intent === "faq" || intent === "eligibility_check" ? intent : undefined;
+  return intent === "product_info" ||
+    intent === "faq" ||
+    intent === "eligibility_check" ||
+    intent === "dispute_unrecognized_charge"
+    ? intent
+    : undefined;
 }
 
 /**
