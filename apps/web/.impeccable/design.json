@@ -1,0 +1,188 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-28T00:00:00.000Z",
+  "title": "Design System: AI-First Banking Agent — Chat Widget",
+  "extensions": {
+    "colorMeta": {
+      "navy-deep": {
+        "role": "primary",
+        "displayName": "Navy Profundo",
+        "canonical": "oklch(24% 0.07 255)",
+        "tonalRamp": [
+          "oklch(15% 0.05 255)",
+          "oklch(20% 0.06 255)",
+          "oklch(24% 0.07 255)",
+          "oklch(32% 0.08 255)",
+          "oklch(45% 0.08 255)",
+          "oklch(60% 0.06 255)",
+          "oklch(78% 0.04 255)",
+          "oklch(95% 0.01 255)"
+        ]
+      },
+      "navy-ink": {
+        "role": "neutral",
+        "displayName": "Navy Tinta",
+        "canonical": "oklch(20% 0.03 255)",
+        "tonalRamp": [
+          "oklch(12% 0.02 255)",
+          "oklch(20% 0.03 255)",
+          "oklch(30% 0.03 255)",
+          "oklch(45% 0.02 255)",
+          "oklch(60% 0.02 255)",
+          "oklch(75% 0.015 255)",
+          "oklch(88% 0.01 255)",
+          "oklch(97% 0.005 255)"
+        ]
+      },
+      "terracotta": {
+        "role": "secondary",
+        "displayName": "Terracota",
+        "canonical": "oklch(58% 0.16 40)",
+        "tonalRamp": [
+          "oklch(20% 0.08 40)",
+          "oklch(35% 0.13 40)",
+          "oklch(50% 0.16 40)",
+          "oklch(58% 0.16 40)",
+          "oklch(68% 0.14 40)",
+          "oklch(78% 0.10 40)",
+          "oklch(88% 0.06 40)",
+          "oklch(96% 0.02 40)"
+        ]
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "Superficie",
+        "canonical": "oklch(97% 0.008 255)"
+      },
+      "surface-raised": {
+        "role": "neutral",
+        "displayName": "Superficie Elevada",
+        "canonical": "oklch(100% 0 0)"
+      },
+      "border-subtle": {
+        "role": "neutral",
+        "displayName": "Borde Sutil",
+        "canonical": "oklch(90% 0.01 255)"
+      },
+      "emerald": {
+        "role": "tertiary",
+        "displayName": "Esmeralda (resuelto/verificado)",
+        "canonical": "oklch(45% 0.13 155)",
+        "tonalRamp": [
+          "oklch(20% 0.08 155)",
+          "oklch(30% 0.11 155)",
+          "oklch(45% 0.13 155)",
+          "oklch(55% 0.12 155)",
+          "oklch(68% 0.10 155)",
+          "oklch(80% 0.07 155)",
+          "oklch(90% 0.04 155)",
+          "oklch(95% 0.03 155)"
+        ]
+      },
+      "crimson": {
+        "role": "tertiary",
+        "displayName": "Crimson (escalado/error)",
+        "canonical": "oklch(48% 0.19 25)"
+      },
+      "amber-caution": {
+        "role": "tertiary",
+        "displayName": "Ámbar Cauteloso (falta información)",
+        "canonical": "oklch(58% 0.11 75)"
+      },
+      "gold-premium": {
+        "role": "tertiary",
+        "displayName": "Dorado Premium (cliente estrella)",
+        "canonical": "oklch(75% 0.13 85)"
+      }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Título", "purpose": "Nombre del widget en el header del chat." },
+      "body": { "displayName": "Cuerpo", "purpose": "Texto de mensajes y tarjetas de contenido." },
+      "label": { "displayName": "Label", "purpose": "Badges de idioma/rol, títulos de sección dentro de tarjetas." }
+    },
+    "shadows": [
+      { "name": "bubble", "value": "0 6px 20px oklch(24% 0.07 255 / 0.25)", "purpose": "Burbuja flotante del widget minimizado." },
+      { "name": "panel", "value": "0 12px 32px oklch(24% 0.07 255 / 0.18)", "purpose": "Panel del widget de chat abierto." },
+      { "name": "modal", "value": "0 16px 40px oklch(24% 0.07 255 / 0.22)", "purpose": "Modal de login, la superficie más elevada del sistema." }
+    ],
+    "motion": [
+      { "name": "ease-standard", "value": "cubic-bezier(0.16, 1, 0.3, 1)", "purpose": "Ease-out-quint, transición default de hover/apertura de superficies." },
+      { "name": "duration-fast", "value": "150ms", "purpose": "Hover de botones, focus rings." },
+      { "name": "duration-base", "value": "220ms", "purpose": "Apertura/cierre del panel del widget, entrada de mensajes nuevos." }
+    ],
+    "breakpoints": [
+      { "name": "narrow", "value": "420px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Botón de acción principal (enviar mensaje, ingresar en el login) — único color de acción del sistema.",
+      "html": "<button class=\"ds-btn-primary\">Enviar</button>",
+      "css": ".ds-btn-primary { background: oklch(58% 0.16 40); color: oklch(100% 0 0); border: none; border-radius: 999px; padding: 10px 18px; font-weight: 600; font-size: 14px; cursor: pointer; transition: background-color 150ms cubic-bezier(0.16, 1, 0.3, 1), transform 150ms cubic-bezier(0.16, 1, 0.3, 1); } .ds-btn-primary:hover { background: oklch(50% 0.16 40); transform: translateY(-1px); } .ds-btn-primary:focus-visible { outline: 2px solid oklch(58% 0.16 40); outline-offset: 2px; } .ds-btn-primary:disabled { background: oklch(85% 0.01 255); cursor: not-allowed; transform: none; }"
+    },
+    {
+      "name": "Ghost Button",
+      "kind": "button",
+      "refersTo": "button-ghost",
+      "description": "Acción secundaria (Cerrar sesión, Nueva conversación).",
+      "html": "<button class=\"ds-btn-ghost\">Cerrar sesión</button>",
+      "css": ".ds-btn-ghost { background: transparent; color: oklch(20% 0.03 255); border: 1px solid oklch(90% 0.01 255); border-radius: 8px; padding: 6px 12px; font-size: 12px; cursor: pointer; transition: background-color 150ms cubic-bezier(0.16, 1, 0.3, 1); } .ds-btn-ghost:hover { background: oklch(97% 0.008 255); }"
+    },
+    {
+      "name": "Content Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "Tarjeta plana de contenido dentro del chat (info, clarify, escalation, dispute).",
+      "html": "<div class=\"ds-card\"><p>Contenido de la tarjeta</p></div>",
+      "css": ".ds-card { background: oklch(100% 0 0); border: 1px solid oklch(90% 0.01 255); border-radius: 12px; padding: 12px; font-size: 14px; color: oklch(20% 0.03 255); }"
+    },
+    {
+      "name": "Text Input",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Campo de texto del login/chat.",
+      "html": "<input class=\"ds-input\" type=\"text\" placeholder=\"Escribe tu mensaje...\" />",
+      "css": ".ds-input { border: 1px solid oklch(90% 0.01 255); background: oklch(100% 0 0); border-radius: 8px; padding: 8px 10px; font-size: 14px; transition: border-color 150ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 150ms cubic-bezier(0.16, 1, 0.3, 1); } .ds-input:focus { outline: none; border-color: oklch(58% 0.16 40); box-shadow: 0 0 0 3px oklch(58% 0.16 40 / 0.15); }"
+    },
+    {
+      "name": "Widget Bubble",
+      "kind": "custom",
+      "refersTo": "chat-widget-bubble",
+      "description": "Burbuja flotante del widget minimizado — componente señal del sistema.",
+      "html": "<button class=\"ds-widget-bubble\" aria-label=\"Abrir chat\">💬</button>",
+      "css": ".ds-widget-bubble { width: 56px; height: 56px; border-radius: 999px; border: none; background: oklch(58% 0.16 40); color: white; font-size: 22px; cursor: pointer; box-shadow: 0 6px 20px oklch(24% 0.07 255 / 0.25); transition: transform 150ms cubic-bezier(0.16, 1, 0.3, 1); } .ds-widget-bubble:hover { transform: scale(1.05); }"
+    }
+  ],
+  "narrative": {
+    "northStar": "El Asesor de Confianza",
+    "overview": "Un widget de chat que se comporta como un asesor bancario de confianza, no como un plugin de soporte instalado encima de una web. Cada estado del sistema (resuelto automáticamente, necesita más información, escalado a un humano, identidad pendiente de verificar) se comunica con la misma claridad directa que daría una persona — nunca con ambigüedad decorativa ni con una calma visual que no se corresponde con lo que realmente pasó. El navy institucional profundo transmite la seriedad de un banco; el acento terracota cálido — usado solo en acciones, nunca como decoración — transmite que hay una persona (o un sistema tan claro como una) del otro lado, no un formulario gris. Se rechaza explícitamente el azul genérico de SaaS y el violeta/azul-lavanda por defecto de los widgets de chat de IA.",
+    "keyCharacteristics": [
+      "Navy profundo como color estructural dominante",
+      "Terracota cálido como único acento de acción",
+      "Tarjetas planas con borde; sombra real solo en superficies flotantes",
+      "Esquinas generosas (12-16px) — dirección cálido y táctil",
+      "Semántica de estado (esmeralda/crimson/ámbar) separada de semántica de rol (dorado premium)"
+    ],
+    "rules": [
+      { "name": "The One Action Rule", "body": "Si un elemento es clickeable y dispara la acción principal de su contexto, es terracota. Nunca dos colores de acción compitiendo en la misma pantalla.", "section": "colors" },
+      { "name": "The Navy Shadow Rule", "body": "Ninguna sombra usa negro puro — todas están teñidas hacia el navy.", "section": "elevation" },
+      { "name": "The Flat-Card Rule", "body": "Ninguna tarjeta de contenido dentro del chat lleva sombra; se destacan por color de estado, no por elevación.", "section": "elevation" },
+      { "name": "The Native Font Rule", "body": "Widget embebido, no página completa — la tipografía se queda en el stack nativo del sistema; la personalidad vive en color, forma y movimiento.", "section": "typography" }
+    ],
+    "dos": [
+      "Do usar Terracota exclusivamente para la acción principal de cada contexto",
+      "Do teñir toda sombra hacia el navy",
+      "Do mantener las tarjetas de contenido del chat planas",
+      "Do respetar prefers-reduced-motion en toda animación nueva"
+    ],
+    "donts": [
+      "Don't usar el azul genérico #2563eb en ningún lugar nuevo",
+      "Don't tender el fondo de página hacia cream/beige/sand",
+      "Don't usar el mismo tono ámbar para falta de información y para cliente estrella",
+      "Don't agregar sombra a una tarjeta de contenido del chat para hacerla destacar"
+    ]
+  }
+}
