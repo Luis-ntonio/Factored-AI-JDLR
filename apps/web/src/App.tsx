@@ -19,10 +19,18 @@ import { ProductShowcase } from "./components/ProductShowcase";
 function AppShell() {
   return (
     <div className="app-shell">
-      <div className="app-shell-topbar">
+      {/* <header> real (landmark "banner") -- antes era un <div>, gap
+          encontrado en /impeccable audit. ProductShowcase.tsx también
+          tiene su propio <header> (el hero) -- por eso va DENTRO de
+          <main> acá abajo: un <header> anidado en <main> ya no toma el
+          rol "banner" por defecto, así que los dos <header> conviven sin
+          landmarks duplicados. */}
+      <header className="app-shell-topbar">
         <AuthPanel language="es" />
-      </div>
-      <ProductShowcase />
+      </header>
+      <main>
+        <ProductShowcase />
+      </main>
       <LoginModal language="es" />
       <ChatWidget />
     </div>

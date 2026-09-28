@@ -45,6 +45,10 @@ export function ProductShowcase() {
       </header>
 
       <section className="how-it-works">
+        {/* h2 real -- antes este section arrancaba directo en h3 (los
+            pasos), saltando de h1 (hero) a h3 sin un h2 que lo organice.
+            Encontrado en /impeccable audit, corregido acá. */}
+        <h2 className="how-it-works-title">Cómo funciona</h2>
         <ol className="how-it-works-steps">
           {HOW_IT_WORKS_STEPS.map((step, index) => (
             <li key={step.title} className="how-it-works-step" style={{ "--stagger-index": index } as CSSProperties}>
@@ -80,7 +84,12 @@ export function ProductShowcase() {
                   <dd>{product.minIncome.toLocaleString()}</dd>
                 </div>
               </dl>
-              <button type="button" className="product-card-cta" onClick={() => requestOpenWithMessage(product.ctaMessage)}>
+              <button
+                type="button"
+                className="product-card-cta"
+                aria-label={`Lo quiero: ${product.name}`}
+                onClick={() => requestOpenWithMessage(product.ctaMessage)}
+              >
                 Lo quiero
               </button>
             </article>
