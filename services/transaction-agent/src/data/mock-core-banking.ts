@@ -218,7 +218,12 @@ export const CUSTOMERS: readonly Customer[] = [
     last_name: "López Torres",
     date_of_birth: "1990-01-01",
     gender: "F",
-    email: "maria.lopez@example.com",
+    // Dato de prueba de esta sesión (no un dato real de negocio): apuntado
+    // a un inbox real del equipo para poder verificar de punta a punta la
+    // entrega real de un código OTP por email (services/auth-agent/src/otp)
+    // -- el resto del mock usa @example.com (dominio reservado, nunca
+    // entrega). Revertir a un @example.com si esto deja de necesitarse.
+    email: "lagg1088@gmail.com",
     mobile_phone: "+52-55-1234-5678",
     address: "Av. Reforma 123, Col. Juárez",
     city: "Ciudad de México",
