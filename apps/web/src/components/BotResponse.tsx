@@ -1,9 +1,11 @@
-import type { EligibilityResult, LanguageCode, RetrievalResult } from "@banking-agent/shared";
+import type { DisputeVerificationResult, EligibilityResult, LanguageCode, RetrievalResult } from "@banking-agent/shared";
 import type { ChatResponse } from "../types";
-import { isRetrievalResult } from "../types";
+import type { LoginSession } from "../auth/api";
+import { isDisputeResult, isRetrievalResult } from "../types";
 import { ENTITY_LABELS, PRODUCT_TYPE_LABELS, SCORE_ZONE_LABELS, formatEntityValue } from "../labels";
 import { EscalationCard } from "./EscalationCard";
 import { LanguageBadge } from "./LanguageBadge";
+import { LoginPrompt } from "./LoginPrompt";
 
 const NO_PRODUCT_INFO: Record<LanguageCode, string> = {
   es: "No encontramos información disponible para esa consulta.",
@@ -58,6 +60,30 @@ const ELIGIBILITY_RESULT_LABEL: Record<LanguageCode, string> = {
 const SCORE_LABEL: Record<LanguageCode, string> = {
   es: "Puntaje:",
   pt: "Pontuação:",
+};
+
+const DISPUTE_RESULT_TITLE: Record<LanguageCode, string> = {
+  es: "Resultado de tu disputa",
+  pt: "Resultado da sua disputa",
+};
+
+const DISPUTE_FOUND_BLOCKED: Record<LanguageCode, string> = {
+  es: "Localizamos la transacción y bloqueamos tu tarjeta de forma preventiva mientras se resuelve la disputa.",
+  pt: "Localizamos a transação e bloqueamos seu cartão de forma preventiva enquanto a disputa é resolvida.",
+};
+
+const DISPUTE_TRANSACTION_ID_LABEL: Record<LanguageCode, string> = {
+  es: "Transacción identificada:",
+  pt: "Transação identificada:",
+};
+
+// El guardrail de Bedrock puede subir la severidad de una regla AUTO a
+// CLARIFY sin proponer un campo estructurado (nunca inventa un `askField`,
+// ver docstring de `PolicyDecisionLike.askField`) -- para ese caso se
+// muestra una pregunta genérica en vez de romper con un campo undefined.
+const GENERIC_CLARIFY_QUESTION: Record<LanguageCode, string> = {
+  es: "Necesitamos revisar tu solicitud con más detalle. ¿Podrías darnos más información sobre tu consulta?",
+  pt: "Precisamos revisar sua solicitação com mais detalhe. Você poderia nos dar mais informações sobre sua consulta?",
 };
 
 function clarifyQuestion(language: LanguageCode, label: string): string {
@@ -148,17 +174,53 @@ function EligibilityCard({ eligibility, language }: { eligibility: EligibilityRe
   );
 }
 
+/** Solo se llega acá con `status: "ok"` -- por diseño de `policies.yaml`
+ * (`auto-dispute-transaction-confirmed-no-fraud`), el único caso AUTO real
+ * de disputa es transacción encontrada + sin fraude + tarjeta bloqueada
+ * (fraude o no-encontrado siempre escalan, nunca llegan acá). Igual no se
+ * asume la forma a ciegas -- se renderiza lo que efectivamente vino. */
+function DisputeResultCard({ dispute, language }: { dispute: DisputeVerificationResult; language: LanguageCode }) {
+  return (
+    <div className="info-card dispute-card">
+      <strong>{DISPUTE_RESULT_TITLE[language]}</strong>
+      {dispute.transactionFound && dispute.productBlocked && <p className="bot-text">{DISPUTE_FOUND_BLOCKED[language]}</p>}
+      {dispute.transactionId && (
+        <p>
+          {DISPUTE_TRANSACTION_ID_LABEL[language]} {dispute.transactionId}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function ClarifyQuestion({
   response,
   language,
+  onLoginSuccess,
 }: {
   response: Extract<ChatResponse, { status: "clarify" }>;
   language: LanguageCode;
+  onLoginSuccess: (session: LoginSession) => void;
 }) {
-  const label = ENTITY_LABELS[language][response.policyDecision.askField] ?? response.policyDecision.askField;
+  // "session_login" es un sentinel de policy-agent (`policies.yaml`,
+  // clarify-anonymous-requires-login) -- NUNCA un EntityKey real, se
+  // renderiza distinto (el modal de login, no una pregunta de texto).
+  if (response.policyDecision.askField === "session_login") {
+    return <LoginPrompt language={language} onLoginSuccess={onLoginSuccess} />;
+  }
+
   // `policyDecision.reason` es texto de auditoría para un revisor humano
   // interno (cita reglas/archivos de policies.yaml, ver evaluator.ts) — NUNCA
   // se le muestra al cliente final. Solo la pregunta ya "humanizada".
+  if (!response.policyDecision.askField) {
+    return (
+      <div className="info-card clarify-card">
+        <p className="clarify-question">{GENERIC_CLARIFY_QUESTION[language]}</p>
+      </div>
+    );
+  }
+
+  const label = ENTITY_LABELS[language][response.policyDecision.askField] ?? response.policyDecision.askField;
   return (
     <div className="info-card clarify-card">
       <p className="clarify-question">{clarifyQuestion(language, label)}</p>
@@ -188,9 +250,14 @@ const TECHNICAL_DETAIL_LABEL: Record<LanguageCode, string> = {
 export function BotResponse({
   response,
   fallbackLanguage,
+  onLoginSuccess,
 }: {
   response: ChatResponse;
   fallbackLanguage: LanguageCode;
+  /** Reenvía el último mensaje del usuario tras un login exitoso -- solo
+   * relevante para `status === "clarify"` con `askField === "session_login"`
+   * (ver `ClarifyQuestion`/`LoginPrompt`), ignorado en cualquier otro caso. */
+  onLoginSuccess: (session: LoginSession) => void;
 }) {
   if (response.status === "unavailable") {
     const language = response.language ?? fallbackLanguage;
@@ -219,7 +286,7 @@ export function BotResponse({
     return (
       <>
         <LanguageBadge language={response.language} />
-        <ClarifyQuestion response={response} language={response.language} />
+        <ClarifyQuestion response={response} language={response.language} onLoginSuccess={onLoginSuccess} />
       </>
     );
   }
@@ -235,6 +302,8 @@ export function BotResponse({
         ) : (
           <ProductCard retrieval={result} language={language} />
         )
+      ) : isDisputeResult(result) ? (
+        <DisputeResultCard dispute={result} language={language} />
       ) : (
         <EligibilityCard eligibility={result} language={language} />
       )}

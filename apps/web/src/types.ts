@@ -7,7 +7,14 @@
  * componentes). Este archivo modela únicamente el "sobre" HTTP tal como lo
  * describe la tarea (verificado contra AWS real).
  */
-import type { EligibilityResult, EscalationSummary, Intent, LanguageCode, RetrievalResult } from "@banking-agent/shared";
+import type {
+  DisputeVerificationResult,
+  EligibilityResult,
+  EscalationSummary,
+  Intent,
+  LanguageCode,
+  RetrievalResult,
+} from "@banking-agent/shared";
 
 /** Mirror mínimo de `PolicyDecisionResult` (services/policy-agent/src/types.ts)
  * — no exportado por @banking-agent/shared, solo se documenta el subconjunto
@@ -17,7 +24,13 @@ export interface PolicyDecisionLike {
   matchedRules?: unknown;
   winningRuleId?: string | null;
   reason: string;
-  askField: string;
+  /** Ausente cuando el guardrail de Bedrock sube la severidad de una regla
+   * AUTO a CLARIFY (`services/policy-agent/src/bedrock/guardrail.ts`): el
+   * modelo puede volver la decisión más conservadora pero nunca inventa un
+   * campo estructurado a preguntar, a diferencia de una regla CLARIFY de
+   * `policies.yaml` (que siempre trae uno). `ClarifyQuestion` debe manejar
+   * este caso con una pregunta genérica, no asumir que siempre hay valor. */
+  askField?: string;
 }
 
 export interface ChatOkResponse {
@@ -25,7 +38,7 @@ export interface ChatOkResponse {
   caseId: string;
   language: LanguageCode;
   intent: Intent;
-  result: RetrievalResult | EligibilityResult;
+  result: RetrievalResult | EligibilityResult | DisputeVerificationResult;
 }
 
 export interface ChatClarifyResponse {
@@ -55,8 +68,23 @@ export interface ChatUnavailableResponse {
 export type ChatResponse = ChatOkResponse | ChatClarifyResponse | ChatEscalateResponse | ChatUnavailableResponse;
 
 /** Un resultado `RetrievalResult` cae acá si `intent` es `product_info`/`faq`. */
-export function isRetrievalResult(result: RetrievalResult | EligibilityResult): result is RetrievalResult {
+export function isRetrievalResult(
+  result: RetrievalResult | EligibilityResult | DisputeVerificationResult
+): result is RetrievalResult {
   return "found" in result;
+}
+
+/** Un resultado `DisputeVerificationResult` cae acá si `intent` es
+ * `dispute_unrecognized_charge` -- bug real encontrado en QA manual: antes
+ * de este campo, un `status: "ok"` de disputa se renderizaba con
+ * `EligibilityCard` (todos los campos `undefined`, UI rota) porque no
+ * había ningún type guard que lo distinguiera. `transactionFound` es un
+ * campo único de este contrato (ni `RetrievalResult` ni `EligibilityResult`
+ * lo tienen). */
+export function isDisputeResult(
+  result: RetrievalResult | EligibilityResult | DisputeVerificationResult
+): result is DisputeVerificationResult {
+  return "transactionFound" in result;
 }
 
 /** Mensaje de chat en el historial de la UI. Un mensaje de usuario tiene
@@ -71,4 +99,8 @@ export interface ChatMessage {
   text?: string;
   response?: ChatResponse;
   clientError?: string;
+  /** Aviso del propio cliente (nunca del backend) -- ej. "sesión cerrada por
+   * inactividad" (ver `ChatPanel.tsx`). Se renderiza distinto a una
+   * respuesta real del bot. */
+  systemNotice?: string;
 }

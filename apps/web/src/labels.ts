@@ -11,6 +11,13 @@ export const ENTITY_LABELS: Record<LanguageCode, Record<string, string>> = {
     document_type: "Tipo de documento",
     product_type: "Producto",
     existing_customer: "Cliente existente",
+    // Faltaban -- bug real encontrado en QA manual: un CLARIFY de disputa
+    // (ej. askField: "merchant") caía al fallback crudo (la propia key en
+    // inglés) en vez de una pregunta humanizada, a diferencia de eligibility.
+    disputed_amount: "Monto del cargo",
+    merchant: "Comercio",
+    transaction_date: "Fecha aproximada del cargo",
+    dispute_reason: "Motivo de la disputa",
   },
   pt: {
     income: "Renda mensal",
@@ -20,6 +27,10 @@ export const ENTITY_LABELS: Record<LanguageCode, Record<string, string>> = {
     document_type: "Tipo de documento",
     product_type: "Produto",
     existing_customer: "Cliente atual",
+    disputed_amount: "Valor da cobrança",
+    merchant: "Comércio",
+    transaction_date: "Data aproximada da cobrança",
+    dispute_reason: "Motivo da disputa",
   },
 };
 
