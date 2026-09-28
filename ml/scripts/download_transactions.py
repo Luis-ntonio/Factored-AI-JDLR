@@ -55,17 +55,24 @@ def get_connection() -> duckdb.DuckDBPyConnection:
     return con
 
 
-def list_objects() -> None:
+def list_objects(subpath: str) -> None:
     if not BUCKET:
         sys.exit("HACKATHON_S3_BUCKET no está seteada en ml/.env -- ver ml/.env.example")
     con = get_connection()
-    print(f"Listando s3://{BUCKET}/{PREFIX}** (primeros 200 objetos) ...")
-    rows = con.execute(
-        f"SELECT file FROM glob('s3://{BUCKET}/{PREFIX}**') LIMIT 200"
-    ).fetchall()
-    for (f,) in rows:
-        print(f)
-    print(f"\n{len(rows)} objeto(s) listados. Confirmá el path real de `transactions` acá antes de correr --glob.")
+    full = f"s3://{BUCKET}/{PREFIX}{subpath}"
+    print(f"Listando {full} (SIN límite -- puede tardar si hay muchas particiones) ...")
+    rows = con.execute(f"SELECT file FROM glob('{full}') ORDER BY file").fetchall()
+
+    safe_name = subpath.replace("/", "_").replace("*", "")
+    out_dir = os.path.join(os.path.dirname(__file__), "..", "data")
+    os.makedirs(out_dir, exist_ok=True)
+    out_path = os.path.join(out_dir, f"s3_listing_{safe_name}.txt")
+    with open(out_path, "w", encoding="utf-8") as f:
+        for (path,) in rows:
+            f.write(path + "\n")
+
+    print(f"{len(rows)} objeto(s) listados bajo '{subpath}'.")
+    print(f"Listado completo guardado en {out_path} (no tiene credenciales -- son solo paths, se puede compartir).")
 
 
 def download(glob_pattern: str) -> None:
@@ -88,11 +95,12 @@ def download(glob_pattern: str) -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--list", action="store_true", help="Solo listar objetos bajo el prefix, sin descargar.")
+    parser.add_argument("--subpath", type=str, default="transactions/**", help="Subpath (relativo a HACKATHON_S3_PREFIX) a listar con --list. Default: transactions/**")
     parser.add_argument("--glob", type=str, default=None, help="Patrón glob (relativo al bucket) de los archivos de transactions a descargar.")
     args = parser.parse_args()
 
     if args.list:
-        list_objects()
+        list_objects(args.subpath)
     elif args.glob:
         download(args.glob)
     else:
