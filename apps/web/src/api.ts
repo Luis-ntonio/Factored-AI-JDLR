@@ -52,18 +52,41 @@ export type SendMessageResult = { ok: true; data: ChatResponse } | { ok: false; 
  * traduce a `{ ok: false, error }` para que la UI lo muestre como mensaje de
  * chat en vez de crashear.
  */
+export interface SendChatMessageContext {
+  /** Token de sesión firmado (`services/auth-agent`), si hay un login
+   * activo -- `undefined` = anónimo. La sesión verificada del backend manda
+   * sobre cualquier otro dato de identidad (ver conversation-agent/src/
+   * index.ts). */
+  sessionToken?: string;
+  /** Identificador estable por DISPOSITIVO (cookie de 1 año, ver
+   * `utils/cookies.ts`), DISTINTO de `caseId` -- puramente informativo para
+   * analítica futura, nunca influye en ninguna decisión de policies.yaml. */
+  deviceSessionId?: string;
+  /** ISO timestamp de cuándo se maximizó el widget de chat (ver
+   * `ChatWidget.tsx`) -- mismo criterio informativo que `deviceSessionId`. */
+  chatOpenedAt?: string;
+}
+
 export async function sendChatMessage(
   caseId: string,
   turnId: string,
   message: string,
   language: LanguageCode,
+  context: SendChatMessageContext = {},
 ): Promise<SendMessageResult> {
   let res: Response;
   try {
     res = await fetch(CHAT_API_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ caseId, turnId, message }),
+      body: JSON.stringify({
+        caseId,
+        turnId,
+        message,
+        sessionToken: context.sessionToken,
+        deviceSessionId: context.deviceSessionId,
+        chatOpenedAt: context.chatOpenedAt,
+      }),
     });
   } catch {
     return { ok: false, error: NETWORK_ERROR[language] };
