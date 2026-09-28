@@ -26,8 +26,17 @@ export type LoginResult =
   | { ok: true; token: string; role: SessionTokenPayload["role"]; customerName: string; expiresAt: string }
   | { ok: false; reason: "invalid_credentials" | "invalid_request" };
 
+/** trim + lowercase + sin tildes/diacríticos (NFD, despoja los combining
+ * marks) -- muchos usuarios tipean sin tildes (teclados sin config regional,
+ * mobile, apuro). "Maria" debe matchear "María" igual que "maria" matchea
+ * "MARIA" -- mismo espíritu de tolerancia, un usuario real no debería
+ * fallar el login por no haber tipeado un acento. */
 function normalizeName(value: string): string {
-  return value.trim().toLowerCase();
+  return value
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "");
 }
 
 export function attemptLogin(

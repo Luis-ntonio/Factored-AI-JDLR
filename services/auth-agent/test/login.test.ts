@@ -37,6 +37,15 @@ describe("attemptLogin", () => {
     expect(result.ok).toBe(true);
   });
 
+  it("nombre/apellido SIN tildes igual matchea (bug real encontrado en smoke test manual -- usuario tipeando sin acentos)", () => {
+    const result = attemptLogin(
+      { document_id: MARIA_DOCUMENT, first_name: "Maria Fernanda", last_name: "Lopez Torres" },
+      CUSTOMERS,
+      SECRET
+    );
+    expect(result.ok).toBe(true);
+  });
+
   it("documento correcto pero nombre NO matchea -> invalid_credentials (nunca revela cuál campo falló)", () => {
     const result = attemptLogin(
       { document_id: MARIA_DOCUMENT, first_name: "Otro", last_name: "Nombre" },
