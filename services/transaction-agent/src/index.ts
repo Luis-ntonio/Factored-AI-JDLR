@@ -13,6 +13,15 @@ export * from "./scoring/score-zone";
 export * from "./config/load-thresholds";
 export * from "./store";
 
+// --- Flujo NUEVO y aditivo: transaction-dispute intake --------------------
+// (ver hacka-info/EDA_LATAM_Bank_resumen.md). Repositorio de solo LECTURA
+// contra el "core bancario" simulado (clientes/productos/transacciones),
+// para que un futuro Lambda de Act (fuera del alcance de este checkpoint)
+// identifique la transacción disputada y los productos/tarjetas del
+// cliente. No interfiere con el flujo de elegibilidad de arriba.
+export * from "./data/mock-core-banking";
+export * from "./repository";
+
 /**
  * Handler de Lambda para la parte transaccional de la capa "Act"
  * (cálculo de elegibilidad, `intent: eligibility_check`). NO conectado a
