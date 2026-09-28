@@ -61,11 +61,28 @@
 
 const path = require("node:path");
 const fs = require("node:fs");
+const { execSync } = require("node:child_process");
 const esbuild = require("esbuild");
 
 const REPO_ROOT = path.resolve(__dirname, "..", "..");
 const OUT_ROOT = path.resolve(__dirname, "..", "modules", "agent", "build");
 const POLICIES_YAML_SRC = path.join(REPO_ROOT, "policies.yaml");
+
+// BUG REAL encontrado (2026-09-28): `auth-agent/src/index.ts` importa
+// `@banking-agent/transaction-agent/dist/data/mock-core-banking` -- una
+// ruta que resuelve, vía el symlink de npm workspaces, al JS YA COMPILADO
+// de transaction-agent, no a su fuente TypeScript. `local.source_dirs`
+// (terraform/modules/agent/main.tf) hashea el `.ts` fuente y SÍ dispara un
+// rebuild cuando cambia -- pero este script, hasta este fix, nunca
+// recompilaba `transaction-agent` antes de bundlear con esbuild, así que
+// esbuild inlineaba lo que hubiera en `dist/` en ese momento, sin importar
+// qué tan fresco fuera. Confirmado en producción: un cambio real en
+// `mock-core-banking.ts` (email de prueba de un customer) no se reflejó en
+// el Lambda de auth-agent desplegado hasta correr este `npm run build`
+// EXPLÍCITAMENTE antes de un segundo `terraform apply`. Se corre acá,
+// siempre, antes de bundlear, para que esto no vuelva a pasar.
+console.log("[package-lambdas] recompilando @banking-agent/transaction-agent (dependencia de dist/ de auth-agent)...");
+execSync("npm run build --workspace=@banking-agent/transaction-agent", { cwd: REPO_ROOT, stdio: "inherit" });
 
 // Paquetes del SDK v3 "core" que el runtime administrado Node.js 20.x de
 // Lambda SÍ trae preinstalados -- seguro marcarlos `external` (no bundlear).

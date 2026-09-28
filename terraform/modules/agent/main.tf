@@ -26,6 +26,14 @@ locals {
   # Lambda desplegado corriendo código viejo) porque el hash de este local
   # nunca vio ese archivo. Cualquier servicio nuevo que se agregue a futuro
   # DEBE agregarse acá en el mismo commit, no después.
+  # BUG REAL adicional encontrado (2026-09-28): este hash originalmente solo
+  # cubría el código FUENTE de los servicios -- nunca el propio
+  # `terraform/scripts/package-lambdas.js` que los empaqueta. Un cambio en
+  # la lógica de empaquetado (ej. el fix de abajo, que agrega un paso de
+  # `npm run build` de transaction-agent antes de bundlear) no disparaba un
+  # rebuild por sí solo. Se agrega `terraform/scripts` a la lista para que
+  # cualquier cambio en el pipeline de build también cuente como motivo de
+  # re-bundle, mismo criterio que el resto de esta lista.
   source_dirs = [
     "${var.repo_root}/services/conversation-agent/src",
     "${var.repo_root}/services/policy-agent/src",
@@ -35,6 +43,7 @@ locals {
     "${var.repo_root}/services/escalation-agent/src",
     "${var.repo_root}/services/auth-agent/src",
     "${var.repo_root}/packages/shared/src",
+    "${var.repo_root}/terraform/scripts",
   ]
 
   source_files = flatten([
