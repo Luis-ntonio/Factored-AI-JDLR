@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeAll } from "vitest";
 import * as path from "node:path";
-import type { EligibilityResult, UnderstandOutput } from "@banking-agent/shared";
+import type { DisputeVerificationResult, EligibilityResult, UnderstandOutput } from "@banking-agent/shared";
 import { loadPolicyFile, evaluatePreAction, evaluatePostAction } from "./evaluator";
 import type { PolicyFile } from "./types";
 
@@ -366,5 +366,69 @@ describe("policy-agent evaluator", () => {
     const result = evaluatePostAction(input, policy);
     expect(result.decision).toBe("AUTO");
     expect(result.winningRuleId).toBe("auto-score-approved");
+  });
+
+  // --- No-contaminación cruzada entre EligibilityResult y
+  // DisputeVerificationResult dentro del MISMO array `post_action_rules`
+  // (ver policies.yaml, cabecera de esa sección, y
+  // services/policy-agent/src/evaluator.ts `getByPath`/`evalLeaf`: un
+  // `field:` ausente en el objeto evaluado nunca lanza, siempre evalúa a
+  // "no matchea"). ------------------------------------------------------
+
+  it("no-contaminación: un EligibilityResult no dispara ninguna regla post_action de disputa", () => {
+    const input: EligibilityResult = {
+      caseId: "x",
+      productType: "credit_card",
+      eligibility_score: 80,
+      score_zone: "approved",
+    };
+    const result = evaluatePostAction(input, policy);
+    const matchedIds = result.matchedRules.map((m) => m.id);
+    expect(matchedIds).not.toContain("escalate-dispute-fraud-suspected");
+    expect(matchedIds).not.toContain("escalate-dispute-transaction-not-found");
+    expect(matchedIds).not.toContain("auto-dispute-transaction-confirmed-no-fraud");
+  });
+
+  it("no-contaminación: un DisputeVerificationResult (confirmado, sin fraude) no dispara reglas de eligibility, y SÍ dispara auto-dispute-transaction-confirmed-no-fraud -> AUTO", () => {
+    const input: DisputeVerificationResult = {
+      caseId: "x",
+      transactionFound: true,
+      transactionId: "TXN-000001",
+      fraudSuspected: false,
+      productBlocked: true,
+    };
+    const result = evaluatePostAction(input, policy);
+    const matchedIds = result.matchedRules.map((m) => m.id);
+    expect(matchedIds).not.toContain("escalate-score-borderline");
+    expect(matchedIds).not.toContain("auto-score-approved");
+    expect(matchedIds).not.toContain("auto-score-declined");
+    expect(matchedIds).toContain("auto-dispute-transaction-confirmed-no-fraud");
+    expect(result.decision).toBe("AUTO");
+    expect(result.winningRuleId).toBe("auto-dispute-transaction-confirmed-no-fraud");
+  });
+
+  it("DisputeVerificationResult con fraudSuspected=true -> ESCALATE vía escalate-dispute-fraud-suspected", () => {
+    const input: DisputeVerificationResult = {
+      caseId: "x",
+      transactionFound: true,
+      transactionId: "TXN-000003",
+      fraudSuspected: true,
+      productBlocked: false,
+    };
+    const result = evaluatePostAction(input, policy);
+    expect(result.decision).toBe("ESCALATE");
+    expect(result.winningRuleId).toBe("escalate-dispute-fraud-suspected");
+  });
+
+  it("DisputeVerificationResult con transactionFound=false -> ESCALATE vía escalate-dispute-transaction-not-found", () => {
+    const input: DisputeVerificationResult = {
+      caseId: "x",
+      transactionFound: false,
+      fraudSuspected: false,
+      productBlocked: false,
+    };
+    const result = evaluatePostAction(input, policy);
+    expect(result.decision).toBe("ESCALATE");
+    expect(result.winningRuleId).toBe("escalate-dispute-transaction-not-found");
   });
 });

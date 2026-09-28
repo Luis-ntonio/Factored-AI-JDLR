@@ -647,14 +647,37 @@ rules:
 # `EligibilityResult` real que produce `computeEligibility`
 # (services/transaction-agent/src/compute-eligibility.ts).
 #
+# ESTE ARRAY SIRVE A DOS CONTRATOS DE ENTRADA DISTINTOS (actualizado
+# 2026-09-27, cierre de Fase 3): `evaluatePostAction` recibe un objeto
+# distinto según qué `intent` originó el turno —
+#   - `intent: eligibility_check`             -> objeto `EligibilityResult`
+#   - `intent: dispute_unrecognized_charge`   -> objeto
+#     `DisputeVerificationResult`
+# Ambos shapes conviven en el MISMO array `post_action_rules` de abajo (no
+# hay un array separado por intent). Esto es seguro por el mecanismo ya
+# usado en `stage: pre_action`: `getByPath`/`evalLeaf`
+# (services/policy-agent/src/evaluator.ts) NUNCA lanzan cuando un `field:`
+# no existe en el objeto evaluado — `getByPath` devuelve `undefined` para un
+# path ausente, y `evalLeaf` con `op: eq`/`gt`/`gte`/`lte` siempre devuelve
+# `false` cuando `actual` es `undefined`. Por eso una regla de disputa (ej.
+# `field: fraudSuspected`) evaluada contra un `EligibilityResult` (que no
+# tiene ese campo) simplemente no matchea nunca, y viceversa una regla de
+# eligibility (ej. `field: score_zone`) contra un `DisputeVerificationResult`
+# tampoco — no hay riesgo de falso positivo cruzado ni de crash. Ver el test
+# explícito de no-contaminación cruzada en
+# `services/policy-agent/src/evaluator.test.ts`.
+#
 # FUENTE DE VERDAD DE NOMBRES DE CAMPO (mismo patrón que
 # `UnderstandOutput` al inicio de este archivo):
-#   packages/shared/src/contracts/eligibility-result.ts
+#   - EligibilityResult: packages/shared/src/contracts/eligibility-result.ts
+#   - DisputeVerificationResult:
+#     packages/shared/src/contracts/dispute-verification-result.ts
 #   Todos los `field:` de las reglas `post_action` de abajo son rutas
-#   literales sobre un objeto `EligibilityResult` tal como lo define ese
-#   archivo TypeScript. NO son alias — si ese archivo cambia un nombre,
-#   este YAML se rompe en silencio (misma limitación ya declarada para
-#   `UnderstandOutput`, ver "Limitaciones" al final de este archivo).
+#   literales sobre UNO de estos dos objetos TypeScript, según cuál de los
+#   dos archivos declara ese campo. NO son alias — si alguno de esos
+#   archivos cambia un nombre, este YAML se rompe en silencio (misma
+#   limitación ya declarada para `UnderstandOutput`, ver "Limitaciones" al
+#   final de este archivo).
 #
 # Contrato de entrada CONFIRMADO (EligibilityResult):
 #   interface EligibilityResult {
@@ -664,6 +687,17 @@ rules:
 #                                 // para el cálculo
 #     eligibility_score: number; // escala 0-100, confirmada
 #     score_zone: "approved" | "borderline" | "declined";
+#   }
+#
+# Contrato de entrada CONFIRMADO (DisputeVerificationResult, ver sección
+# `dispute_post_action_contract_status: CONFIRMED` más abajo para la
+# resolución completa de las 3 preguntas que este archivo dejaba abiertas):
+#   interface DisputeVerificationResult {
+#     caseId: string;
+#     transactionFound: boolean;
+#     transactionId?: string;    // presente solo si transactionFound === true
+#     fraudSuspected: boolean;
+#     productBlocked: boolean;
 #   }
 #
 # Resolución de las 3 preguntas que este archivo dejaba abiertas
@@ -759,95 +793,18 @@ post_action_rules:
       el dominio real lo requiere, es una regla a agregar en fase de
       escalation-agent/legal, no cubierta en este checkpoint.
 
-# =============================================================================
-# stage: post_action — PROPUESTA para dispute_unrecognized_charge
-# (Tarea 4 del pivot 2026-09-27) — NO CONFIRMADO, NO CONECTADO AL EVALUADOR
-# =============================================================================
-#
-# SEPARACIÓN EXPLÍCITA de la sección `post_action_rules` de arriba: ESA
-# sección sigue CONFIRMADA para `eligibility_check`/`EligibilityResult` y NO
-# se toca acá. Este bloque nuevo es conceptualmente análogo (mismo propósito:
-# reglas de negocio sobre el RESULTADO de un futuro Act), pero para el flujo
-# nuevo de disputa de cargos, y usa nombres de clave DISTINTOS a propósito:
-# `dispute_post_action_contract_status` / `dispute_post_action_open_questions`
-# / `dispute_post_action_rules_proposal`, en vez de reutilizar
-# `post_action_contract_status`/`post_action_rules`. Dos razones:
-#   1. YAML no admite dos claves top-level con el mismo nombre — la clave
-#      `post_action_rules` ya existe arriba, CONFIRMADA, y no se sobrescribe.
-#   2. `PolicyFile` (services/policy-agent/src/types.ts) NO declara estas
-#      claves nuevas, y `evaluateStage`/`evaluatePostAction`
-#      (services/policy-agent/src/evaluator.ts) SOLO leen literalmente
-#      `policy.post_action_rules` — por diseño, este bloque de abajo NO se
-#      evalúa en runtime todavía. Es documentación auditable de una
-#      PROPUESTA, exactamente el mismo estado en el que estuvo la sección de
-#      eligibility antes de que transaction-agent confirmara su contrato
-#      (ver docs/PLAN.md, secciones "Decisiones y limitaciones registradas —
-#      Días 2-3 (Understand + Decide)" y "... Días 3-5 (policy-agent,
-#      confirmación del contrato)" para el precedente exacto de este mismo
-#      patrón: ahí también se dejó `post_action_contract_status:
-#      PROPOSAL_NOT_CONFIRMED` con un borrador de reglas hasta que
-#      transaction-agent confirmó el contrato real).
-#
-# Por qué esta fase (Tarea 4) NO puede confirmar el contrato: la sospecha de
-# fraude sobre una disputa solo puede evaluarse DESPUÉS de que un futuro
-# Lambda "Act" de disputa (fase siguiente, NO implementada todavía — no
-# existe ni ese Lambda ni el contrato de su resultado) busque/verifique la
-# transacción real contra `transactions`/`products`
-# (services/transaction-agent/src/data/mock-core-banking.ts). Esta sección
-# deja el terreno preparado y las preguntas explícitas que esa fase debe
-# resolver, en vez de inventar el contrato acá.
-#
-dispute_post_action_contract_status: PROPOSAL_NOT_CONFIRMED
+  # --- dispute_unrecognized_charge (DisputeVerificationResult) -----------
+  # Reglas promovidas a producción el 2026-09-27 (cierre de Fase 3) desde el
+  # borrador `dispute_post_action_rules_proposal` (retirado más abajo, ver
+  # comentario en su lugar) una vez que transaction-agent confirmó el
+  # contrato `DisputeVerificationResult`
+  # (packages/shared/src/contracts/dispute-verification-result.ts). Mismo
+  # array, mismo evaluador (`evaluatePostAction`), sin distinción de código
+  # entre "reglas de eligibility" y "reglas de disputa" — ver el comentario
+  # de la cabecera de esta sección para por qué mezclar ambos shapes acá es
+  # seguro.
 
-dispute_post_action_open_questions:
-  - question: >
-      (a) Nombre y shape EXACTO del contrato de resultado de verificación de
-      disputa (análogo a `EligibilityResult` de
-      packages/shared/src/contracts/eligibility-result.ts). Nombre tentativo,
-      NO decidido acá: `DisputeVerificationResult`. Campos candidatos, a
-      definir por quien construya el Act (no se decide cuáles de estos, sus
-      nombres finales, ni si todos son necesarios):
-        - `transactionFound: boolean` — si se pudo localizar una transacción
-          real del cliente que matchee las pistas dadas
-          (`disputed_amount`/`merchant`/`transaction_date`).
-        - `fraudSuspected: boolean` y/o `fraud_score: number` — el mock de
-          transaction-agent (services/transaction-agent/src/data/
-          mock-core-banking.ts, interface `Transaction`) YA tiene ambas
-          señales disponibles hoy (`is_fraud: boolean` y `fraud_score?:
-          number`, DECIMAL(5,2) rango 0-100 documentado ahí); cuál de las
-          dos (o ambas) expone el contrato de resultado final es decisión de
-          esa fase futura, no de esta.
-        - Posibles campos adicionales no anticipados acá (ej. `caseId`,
-          `transactionId` encontrado, `productBlocked: boolean`) — abierto.
-  - question: >
-      (b) Si el contrato expone `fraud_score` numérico (en vez de, o además
-      de, un boolean `fraudSuspected`), ¿qué umbral dispara ESCALATE? El mock
-      de transaction-agent usa `fraud_score: 96.0` para su único caso
-      `is_fraud: true` (TXN-000003, compra en Miami de un cliente mexicano) y
-      valores entre 0.5 y 4.2 para el resto (claramente no-fraude) — sugiere
-      que un umbral alto (ej. > 50 sobre 100) sería razonable, pero esto es
-      una OBSERVACIÓN del mock, NO una decisión de negocio validada; queda
-      abierto para quien confirme el contrato, mismo criterio con el que se
-      dejó abierta la escala de `eligibility_score` hasta que
-      transaction-agent la confirmó.
-  - question: >
-      (c) Correlación por `caseId`/`turnId`: la hipótesis de trabajo es que
-      aplica el MISMO mecanismo ya confirmado para eligibility (partición
-      `pk = CASE#<caseId>` en la tabla real `banking-agent-dev-case-store`,
-      `sk = RESULT#dispute#<turnId>` análogo a
-      `RESULT#eligibility#<turnId>`) — pero esto NO está confirmado acá; queda
-      para quien implemente el Act de disputa validarlo contra la infra real.
-
-# Reglas PROPUESTAS (borrador, NO evaluadas en runtime — ver banner arriba).
-# Se dejan como punto de partida legible para la fase siguiente, mismo estilo
-# que las reglas ya confirmadas de este archivo. Usan nombres de campo
-# TENTATIVOS (`transactionFound`, `fraudSuspected`) que dependen de que la
-# pregunta (a) de arriba se resuelva con esos nombres exactos — si el
-# contrato real usa otros nombres, este borrador debe reescribirse, no solo
-# renombrarse campo por campo.
-dispute_post_action_rules_proposal:
-
-  - id: escalate-dispute-fraud-suspected  # BORRADOR — id no de producción
+  - id: escalate-dispute-fraud-suspected
     stage: post_action
     when:
       all:
@@ -856,12 +813,13 @@ dispute_post_action_rules_proposal:
           value: true
     decision: ESCALATE
     reason: >
-      BORRADOR. Sospecha de fraude confirmada por el Act de verificación de
-      disputa (contrato aún no confirmado, ver
-      dispute_post_action_open_questions) — requiere revisión humana antes
-      de comunicar cualquier resultado o cerrar la disputa automáticamente.
+      Sospecha de fraude confirmada por transaction-agent
+      (`DisputeVerificationResult.fraudSuspected`, eco directo de
+      `Transaction.is_fraud` de la transacción localizada) — requiere
+      revisión humana antes de comunicar cualquier resultado o cerrar la
+      disputa automáticamente.
 
-  - id: escalate-dispute-transaction-not-found  # BORRADOR
+  - id: escalate-dispute-transaction-not-found
     stage: post_action
     when:
       all:
@@ -870,7 +828,7 @@ dispute_post_action_rules_proposal:
           value: false
     decision: ESCALATE
     reason: >
-      BORRADOR. No se pudo localizar ninguna transacción real del cliente que
+      No se pudo localizar ninguna transacción real del cliente que
       coincida con las pistas dadas (`disputed_amount`/`merchant`/
       `transaction_date`). Recordar que `complaints` no es fuente verificable
       (EDA del dataset LATAM Bank) y que la única fuente válida es
@@ -878,7 +836,7 @@ dispute_post_action_rules_proposal:
       autorizar bloqueo de tarjeta ni apertura de disputa sin revisión
       humana.
 
-  - id: auto-dispute-transaction-confirmed-no-fraud  # BORRADOR
+  - id: auto-dispute-transaction-confirmed-no-fraud
     stage: post_action
     when:
       all:
@@ -890,12 +848,82 @@ dispute_post_action_rules_proposal:
           value: false
     decision: AUTO
     reason: >
-      BORRADOR. Transacción real localizada y sin sospecha de fraude — se
-      autorizaría bloquear la tarjeta y abrir la disputa sin intervención
-      humana adicional. NO CONFIRMADO: falta validar si "bloquear tarjeta"
-      debe ser siempre AUTO incluso sin fraude, o si negocio quiere aplicar
-      también acá un umbral de monto (ej. reusar
-      `config.dispute_high_risk_amount_threshold`) — abierto.
+      Transacción real localizada y sin sospecha de fraude — se autoriza
+      bloquear la tarjeta y abrir la disputa sin intervención humana
+      adicional.
+      IMPORTANTE: esta regla NO excluye a propósito el caso
+      `transactionFound: false` (que por construcción, según
+      `DisputeVerificationResult.transactionFound`, siempre trae
+      `fraudSuspected: false` — transaction-agent nunca evalúa fraude sobre
+      una transacción que no localizó) — si
+      `escalate-dispute-transaction-not-found` también matchea el mismo
+      turno, esa regla gana por el modelo "más conservador gana" descrito en
+      `evaluation_semantics`. Mismo patrón exacto que `auto-eligibility-
+      complete` arriba: cada excepción se declara una sola vez, en la regla
+      ESCALATE correspondiente, no duplicada acá como condición negativa.
+
+# =============================================================================
+# stage: post_action — contrato CONFIRMADO para dispute_unrecognized_charge
+# (cierre de Fase 3, 2026-09-27)
+# =============================================================================
+#
+# ACTUALIZACIÓN: esta sección ya NO es una propuesta. services/transaction-
+# agent (`computeDisputeVerification`) es el productor real del contrato
+# `DisputeVerificationResult`
+# (packages/shared/src/contracts/dispute-verification-result.ts), y sus 3
+# reglas de negocio viven ahora en PRODUCCIÓN dentro del array
+# `post_action_rules` de arriba (`escalate-dispute-fraud-suspected`,
+# `escalate-dispute-transaction-not-found`,
+# `auto-dispute-transaction-confirmed-no-fraud`) — ya evaluadas por
+# `evaluatePostAction` en runtime, mismo mecanismo que las reglas de
+# eligibility. Esta sección se conserva por trazabilidad histórica (mostrar
+# cómo se llegó del borrador al contrato confirmado), no porque siga
+# gobernando ninguna regla activa.
+#
+dispute_post_action_contract_status: CONFIRMED
+
+# Resolución de las 3 preguntas que este archivo dejaba abiertas
+# (`dispute_post_action_contract_status: PROPOSAL_NOT_CONFIRMED`), tal como
+# las confirmó transaction-agent en coordinación con quien construyó el Act
+# de disputa (mismo patrón que la sección análoga de eligibility más arriba,
+# "Resolución de las 3 preguntas que este archivo dejaba abiertas"):
+#   (a) Shape del contrato: el definido arriba, en la cabecera de
+#       `post_action_rules` ("Contrato de entrada CONFIRMADO
+#       (DisputeVerificationResult)") — `caseId`, `transactionFound`,
+#       `transactionId` (opcional), `fraudSuspected`, `productBlocked`. Se
+#       agregó `transactionId` (presente solo si `transactionFound ===
+#       true`) para que verification-agent pueda re-verificar ownership de
+#       forma independiente sin repetir el matching difuso que ya hizo
+#       transaction-agent.
+#   (b) Umbral de fraude: señal ÚNICA y primaria
+#       `transaction.is_fraud === true`, mapeada 1:1 a `fraudSuspected` por
+#       transaction-agent. NO se usa `fraud_score` como señal secundaria: el
+#       mock (services/transaction-agent/src/data/mock-core-banking.ts) no
+#       tiene ningún caso límite que justifique un corte numérico — el único
+#       `is_fraud: true` tiene `fraud_score: 96.0`, el resto está entre 0.5 y
+#       4.2 — así que un umbral arbitrario sin caso real que lo ponga a
+#       prueba sería una regla no verificable. Se difiere hasta que exista
+#       necesidad de negocio concreta.
+#   (c) Correlación: CONFIRMADA igual que para eligibility — misma tabla real
+#       `banking-agent-dev-case-store`, misma partición
+#       `pk = CASE#<caseId>`, `sk = RESULT#dispute#<turnId>`,
+#       `idempotencyKey = "${caseId}:${turnId}"` (ver
+#       services/transaction-agent/src/store/dispute-store.ts).
+# Ver packages/shared/src/contracts/dispute-verification-result.ts para la
+# redacción completa y autorizada de esta resolución (este bloque la
+# transcribe, no la reabre).
+
+# RETIRADO (2026-09-27): este bloque contenía las 3 reglas BORRADOR
+# (`dispute_post_action_rules_proposal`). Se retira porque sus reglas ya
+# fueron promovidas, con IDs de producción y `reason` finales (sin
+# "BORRADOR"), al array `post_action_rules` de arriba —
+# `escalate-dispute-fraud-suspected`, `escalate-dispute-transaction-not-
+# found`, `auto-dispute-transaction-confirmed-no-fraud`. Se deja este
+# comentario en vez de borrar el bloque sin rastro, para que el historial de
+# git conserve la trazabilidad de que este contenido existió acá como
+# propuesta antes de confirmarse (mismo criterio de honestidad que el resto
+# de este archivo) — ver `git log -p` sobre este archivo para el diff
+# completo del borrador retirado.
 
 # =============================================================================
 # LIMITACIONES CONOCIDAS DE ESTE ARCHIVO (ver también docs/STATUS.md)
@@ -934,14 +962,24 @@ dispute_post_action_rules_proposal:
 #   confirma consistencia interna de `score_zone`), pero nada vuelve a
 #   invocar `evaluatePostAction` sobre ese resultado en producción hoy —
 #   ver docs/STATUS.md, sección P0, "Riesgo conocido".
-# - `dispute_unrecognized_charge` (Tarea 4, pivot 2026-09-27): las reglas
-#   `stage: pre_action` (grupo escalate-dispute-*/clarify-dispute-*/
-#   auto-dispute-complete) sí son ejecutables hoy contra un `UnderstandOutput`
-#   real, mismo mecanismo que el resto de este archivo. Lo que NO existe
-#   todavía es el Act de disputa (Lambda que busque/verifique la transacción
-#   real) ni su contrato de resultado — ver la sección
-#   `dispute_post_action_contract_status: PROPOSAL_NOT_CONFIRMED` más arriba,
-#   con las 3 preguntas abiertas explícitas para esa fase futura.
+# - `dispute_unrecognized_charge` (actualizado 2026-09-27, cierre de Fase 3):
+#   TANTO las reglas `stage: pre_action` (grupo escalate-dispute-*/
+#   clarify-dispute-*/auto-dispute-complete) COMO las de `stage: post_action`
+#   (`escalate-dispute-fraud-suspected`/`escalate-dispute-transaction-not-
+#   found`/`auto-dispute-transaction-confirmed-no-fraud`, dentro de
+#   `post_action_rules`) son ejecutables hoy contra objetos reales
+#   (`UnderstandOutput` y `DisputeVerificationResult` respectivamente,
+#   ver `packages/shared/src/contracts/dispute-verification-result.ts`) —
+#   el Act de disputa (`services/transaction-agent`,
+#   `computeDisputeVerification`) YA EXISTE y su contrato `post_action` está
+#   CONFIRMADO (`dispute_post_action_contract_status: CONFIRMED`). Lo que
+#   SIGUE pendiente, igual que para eligibility (ver el bullet de arriba
+#   sobre `post_action_rules`/Step Function), es la conexión de este flujo a
+#   un orquestador end-to-end desplegado en AWS (Step Function real) que
+#   invoque conversation-agent -> policy-agent (pre_action) ->
+#   transaction-agent -> policy-agent (post_action) sobre disputas en
+#   producción — eso es trabajo de devops en una fase posterior, no se da
+#   por hecho ni se implementa acá.
 # - `is_repeat_complainer` (reincidencia de reclamos) NO tiene regla en este
 #   archivo, a propósito. `UnderstandContext.historyTurns` solo cuenta turnos
 #   dentro del MISMO `caseId`, no disputas pasadas del mismo cliente a través

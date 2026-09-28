@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import * as yaml from "js-yaml";
-import type { EligibilityResult, UnderstandOutput } from "@banking-agent/shared";
+import type { DisputeVerificationResult, EligibilityResult, UnderstandOutput } from "@banking-agent/shared";
 import {
   Condition,
   Decision,
@@ -24,17 +24,30 @@ import {
  */
 
 /**
- * Contrato de entrada de transaction-agent para las reglas
- * `stage: post_action` de policies.yaml. CONFIRMADO (ver
- * `post_action_contract_status: CONFIRMED` en policies.yaml) —
- * `EligibilityResult` es ahora un tipo real de `@banking-agent/shared`
- * (`packages/shared/src/contracts/eligibility-result.ts`), producido por
- * `services/transaction-agent` (`computeEligibility`). Se re-exporta acá
- * por conveniencia para quien importe `@banking-agent/policy-agent`
- * directamente, pero la fuente de verdad canónica del tipo es
- * `packages/shared`, no este archivo.
+ * Contratos de entrada de transaction-agent para las reglas
+ * `stage: post_action` de policies.yaml. AMBOS CONFIRMADOS (ver
+ * `post_action_contract_status: CONFIRMED` y
+ * `dispute_post_action_contract_status: CONFIRMED` en policies.yaml) —
+ * `EligibilityResult` (packages/shared/src/contracts/eligibility-result.ts,
+ * producido por `computeEligibility` para `intent: eligibility_check`) y
+ * `DisputeVerificationResult`
+ * (packages/shared/src/contracts/dispute-verification-result.ts, producido
+ * por `computeDisputeVerification` para `intent:
+ * dispute_unrecognized_charge`) son ambos tipos reales de
+ * `@banking-agent/shared`. Se re-exportan acá por conveniencia para quien
+ * importe `@banking-agent/policy-agent` directamente, pero la fuente de
+ * verdad canónica de ambos tipos es `packages/shared`, no este archivo.
  */
-export type { EligibilityResult };
+export type { EligibilityResult, DisputeVerificationResult };
+
+/** Unión de los contratos de resultado que puede recibir `evaluatePostAction`
+ * — el mismo array `post_action_rules` de policies.yaml evalúa reglas sobre
+ * cualquiera de los dos shapes, según qué `intent` originó el turno (ver
+ * cabecera de esa sección en policies.yaml). `getByPath`/`evalLeaf` de abajo
+ * garantizan que un `field:` ausente en el shape que no corresponde nunca
+ * matchea (ver esas funciones para el detalle) — no hay contaminación
+ * cruzada entre reglas de eligibility y reglas de disputa. */
+export type PostActionResult = EligibilityResult | DisputeVerificationResult;
 
 /** Carga y parsea policies.yaml desde disco. No valida JSON Schema completo
  * (ver limitación declarada en policies.yaml) — solo chequea que tenga la
@@ -243,18 +256,26 @@ export function evaluatePreAction(
 }
 
 /**
- * Evalúa las reglas `stage: post_action` contra un `EligibilityResult` real
- * producido por `services/transaction-agent` (`computeEligibility`). Contrato
- * CONFIRMADO (ver policies.yaml, `post_action_contract_status: CONFIRMED`) —
- * ya no es una propuesta. IMPORTANTE: esto no implica que exista todavía un
- * orquestador end-to-end desplegado en AWS que invoque transaction-agent y
- * luego pase su resultado acá en un mismo flujo real de producción; cada
- * pieza está probada por separado (y con tests de integración que encadenan
- * los paquetes compilados) pero la conexión productiva sigue pendiente (ver
+ * Evalúa las reglas `stage: post_action` contra un resultado real producido
+ * por `services/transaction-agent`: `EligibilityResult` (`computeEligibility`,
+ * `intent: eligibility_check`) o `DisputeVerificationResult`
+ * (`computeDisputeVerification`, `intent: dispute_unrecognized_charge`).
+ * AMBOS contratos CONFIRMADOS (ver policies.yaml,
+ * `post_action_contract_status: CONFIRMED` y
+ * `dispute_post_action_contract_status: CONFIRMED`) — ninguno es ya una
+ * propuesta. Mismo array `post_action_rules`, mismo evaluador: un `field:`
+ * de una regla de disputa nunca matchea contra un `EligibilityResult` (y
+ * viceversa), ver `getByPath`/`evalLeaf` arriba para el mecanismo exacto —
+ * probado explícitamente en evaluator.test.ts (tests de no-contaminación
+ * cruzada). IMPORTANTE: esto no implica que exista todavía un orquestador
+ * end-to-end desplegado en AWS que invoque transaction-agent y luego pase su
+ * resultado acá en un mismo flujo real de producción; cada pieza está
+ * probada por separado (y con tests de integración que encadenan los
+ * paquetes compilados) pero la conexión productiva sigue pendiente (ver
  * policies.yaml, sección "LIMITACIONES CONOCIDAS").
  */
 export function evaluatePostAction(
-  input: EligibilityResult,
+  input: PostActionResult,
   policy: PolicyFile
 ): PolicyDecisionResult {
   return evaluateStage("post_action", input, policy);
