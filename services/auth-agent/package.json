@@ -1,0 +1,23 @@
+{
+  "name": "@banking-agent/auth-agent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Login de plataforma: valida documento+nombre+apellido contra el core bancario simulado (mismo dataset que transaction-agent) y firma un sessionToken (HMAC, sin estado) que conversation-agent verifica en cada turno de POST /chat. Nunca prueba identidad con un documento solo -- ver docs/EVALUATION-CRITERIA.md, punto 6 Security.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@aws-sdk/client-ssm": "^3.665.0",
+    "@banking-agent/shared": "0.1.0",
+    "@banking-agent/transaction-agent": "0.1.0"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.145",
+    "@types/node": "^20.16.11",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.4"
+  }
+}

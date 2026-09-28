@@ -12,7 +12,7 @@
   },
   "scripts": {
     "test": "npm test --workspaces --if-present",
-    "build": "npm run build --workspace=@banking-agent/shared && npm run build --workspace=@banking-agent/policy-agent && npm run build --workspace=@banking-agent/conversation-agent && npm run build --workspace=@banking-agent/retrieval-agent && npm run build --workspace=@banking-agent/transaction-agent && npm run build --workspace=@banking-agent/verification-agent && npm run build --workspace=@banking-agent/escalation-agent",
+    "build": "npm run build --workspace=@banking-agent/shared && npm run build --workspace=@banking-agent/policy-agent && npm run build --workspace=@banking-agent/conversation-agent && npm run build --workspace=@banking-agent/retrieval-agent && npm run build --workspace=@banking-agent/transaction-agent && npm run build --workspace=@banking-agent/verification-agent && npm run build --workspace=@banking-agent/escalation-agent && npm run build --workspace=@banking-agent/auth-agent",
     "package:lambdas": "node terraform/scripts/package-lambdas.js"
   },
   "devDependencies": {
