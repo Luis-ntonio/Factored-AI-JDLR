@@ -57,6 +57,24 @@ variable "chat_route_key" {
   default     = "POST /chat"
 }
 
+variable "attach_auth_route" {
+  description = "Mismo criterio/motivo que attach_chat_route (booleano LITERAL separado del ARN, que puede ser known-after-apply) -- para la ruta de login (POST /auth/login) -> auth-agent, invocado DIRECTO por API Gateway (nunca vía la Step Function, a diferencia de /chat)."
+  type        = bool
+  default     = false
+}
+
+variable "auth_route_lambda_invoke_arn" {
+  description = "ARN de invocación (invoke_arn) del Lambda auth-agent (modules/agent). Solo se usa si var.attach_auth_route = true."
+  type        = string
+  default     = null
+}
+
+variable "auth_route_key" {
+  description = "Route key HTTP para el endpoint de login, usado solo si attach_auth_route = true."
+  type        = string
+  default     = "POST /auth/login"
+}
+
 variable "cors_allow_origins" {
   description = <<-EOT
     Lista de origins permitidos en el `cors_configuration` nativo del HTTP

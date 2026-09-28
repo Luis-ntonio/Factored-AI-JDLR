@@ -99,3 +99,25 @@ resource "aws_apigatewayv2_route" "chat" {
   route_key = var.chat_route_key
   target    = "integrations/${aws_apigatewayv2_integration.chat[0].id}"
 }
+
+# Integración + ruta de login (POST /auth/login) -- mismo mecanismo
+# count/attach_*_route que el chat de arriba, pero apunta DIRECTO al Lambda
+# auth-agent (modules/agent), nunca a un dispatcher/Step Function: login es
+# una sola invocación sin orquestación, no un turno del pipeline
+# Understand->Decide->Act->Verify->Escalate.
+resource "aws_apigatewayv2_integration" "auth" {
+  count = var.attach_auth_route ? 1 : 0
+
+  api_id                 = aws_apigatewayv2_api.this.id
+  integration_type       = "AWS_PROXY"
+  integration_uri        = var.auth_route_lambda_invoke_arn
+  payload_format_version = "2.0"
+}
+
+resource "aws_apigatewayv2_route" "auth" {
+  count = var.attach_auth_route ? 1 : 0
+
+  api_id    = aws_apigatewayv2_api.this.id
+  route_key = var.auth_route_key
+  target    = "integrations/${aws_apigatewayv2_integration.auth[0].id}"
+}

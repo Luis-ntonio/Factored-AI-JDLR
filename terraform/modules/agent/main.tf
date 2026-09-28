@@ -12,12 +12,20 @@ locals {
   )
 
   # Hash combinado de todo el código fuente que puede afectar el contenido de
-  # los 6 zips (los 6 servicios + su dependencia compartida packages/shared +
+  # los 7 zips (los 7 servicios + su dependencia compartida packages/shared +
   # policies.yaml, empaquetado dentro de policy-agent/transaction-agent/
   # verification-agent). Recalcula el trigger del null_resource de build cada
   # vez que cambia cualquiera de estos archivos -- fileset()/filesha1() son
   # funciones de Terraform evaluadas en cada plan, sin necesidad de un paso
   # externo.
+  #
+  # BUG REAL encontrado en este checkpoint: al agregar auth-agent como 7mo
+  # servicio, este `source_dirs` no se actualizó al mismo tiempo -- un fix
+  # posterior en services/auth-agent/src/login.ts (normalización de tildes)
+  # NO disparó un rebuild (`terraform plan` reportaba "No changes" con el
+  # Lambda desplegado corriendo código viejo) porque el hash de este local
+  # nunca vio ese archivo. Cualquier servicio nuevo que se agregue a futuro
+  # DEBE agregarse acá en el mismo commit, no después.
   source_dirs = [
     "${var.repo_root}/services/conversation-agent/src",
     "${var.repo_root}/services/policy-agent/src",
@@ -25,6 +33,7 @@ locals {
     "${var.repo_root}/services/transaction-agent/src",
     "${var.repo_root}/services/verification-agent/src",
     "${var.repo_root}/services/escalation-agent/src",
+    "${var.repo_root}/services/auth-agent/src",
     "${var.repo_root}/packages/shared/src",
   ]
 
@@ -105,6 +114,14 @@ data "archive_file" "escalation_agent" {
   depends_on = [null_resource.build_lambdas]
 }
 
+data "archive_file" "auth_agent" {
+  type        = "zip"
+  source_dir  = "${path.module}/build/auth-agent"
+  output_path = "${path.module}/build/auth-agent.zip"
+
+  depends_on = [null_resource.build_lambdas]
+}
+
 # --- IAM: trust policy común de Lambda ---
 data "aws_iam_policy_document" "lambda_assume_role" {
   statement {
@@ -126,6 +143,15 @@ data "aws_iam_policy_document" "lambda_assume_role" {
 # Bedrock/SSM sin hardcodear el account ID en ningún .tf (mismo criterio ya
 # aplicado en docs/: nunca commitear el account ID literal).
 data "aws_caller_identity" "current" {}
+
+# Clave KMS administrada por AWS que cifra el parámetro SecureString del
+# secreto de sesión (module.secrets, sin `key_id` custom -> default
+# "alias/aws/ssm"). Necesaria para el statement kms:Decrypt de auth_agent/
+# conversation_agent más abajo -- ssm:GetParameter sobre un SecureString
+# SIEMPRE requiere también kms:Decrypt sobre la clave que lo cifra.
+data "aws_kms_alias" "ssm" {
+  name = "alias/aws/ssm"
+}
 
 locals {
   # ARN del inference profile cross-region (prefijo "us.") elegido en
@@ -258,6 +284,18 @@ resource "aws_iam_role_policy" "conversation_agent_ssm" {
         Effect   = "Allow"
         Action   = ["ssm:GetParameter"]
         Resource = local.bedrock_ssm_parameter_arns
+      },
+      {
+        Sid      = "ReadSessionTokenSecret"
+        Effect   = "Allow"
+        Action   = ["ssm:GetParameter"]
+        Resource = [var.session_token_secret_parameter_arn]
+      },
+      {
+        Sid      = "DecryptSessionTokenSecret"
+        Effect   = "Allow"
+        Action   = ["kms:Decrypt"]
+        Resource = [data.aws_kms_alias.ssm.target_key_arn]
       }
     ]
   })
@@ -282,10 +320,11 @@ resource "aws_lambda_function" "conversation_agent" {
 
   environment {
     variables = {
-      CASE_STORE_TABLE_NAME       = var.case_store_table_name
-      UNDERSTANDING_BACKEND       = "bedrock"
-      BEDROCK_MODEL_ID_PARAM_NAME = var.bedrock_model_id_ssm_parameter_name
-      BEDROCK_REGION_PARAM_NAME   = var.bedrock_region_ssm_parameter_name
+      CASE_STORE_TABLE_NAME          = var.case_store_table_name
+      UNDERSTANDING_BACKEND          = "bedrock"
+      BEDROCK_MODEL_ID_PARAM_NAME    = var.bedrock_model_id_ssm_parameter_name
+      BEDROCK_REGION_PARAM_NAME      = var.bedrock_region_ssm_parameter_name
+      SESSION_TOKEN_SECRET_PARAM_NAME = var.session_token_secret_parameter_name
     }
   }
 
@@ -626,5 +665,81 @@ resource "aws_lambda_function" "escalation_agent" {
   depends_on = [
     aws_cloudwatch_log_group.escalation_agent,
     aws_iam_role_policy_attachment.escalation_agent_basic_logs,
+  ]
+}
+
+# =====================================================================
+# auth-agent -- login de plataforma (POST /auth/login).
+# IAM de mínimo privilegio: logging + ssm:GetParameter/kms:Decrypt scoped
+# al ÚNICO parámetro del secreto de sesión (mismo par de statements que
+# conversation_agent_ssm, ver arriba). Expuesto vía API Gateway
+# (terraform/modules/edge), NUNCA invocado por la Step Function -- SIN
+# DynamoDB, SIN lambda:InvokeFunction, mismo criterio que
+# conversation-agent (los dos únicos Lambdas de este módulo detrás de API
+# Gateway). No lee policies.yaml.
+# =====================================================================
+resource "aws_iam_role" "auth_agent" {
+  name               = "${local.name_prefix}-auth-agent-role"
+  assume_role_policy = data.aws_iam_policy_document.lambda_assume_role.json
+  tags               = local.common_tags
+}
+
+resource "aws_iam_role_policy_attachment" "auth_agent_basic_logs" {
+  role       = aws_iam_role.auth_agent.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+resource "aws_iam_role_policy" "auth_agent_ssm" {
+  name = "${local.name_prefix}-auth-agent-ssm"
+  role = aws_iam_role.auth_agent.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid      = "ReadSessionTokenSecret"
+        Effect   = "Allow"
+        Action   = ["ssm:GetParameter"]
+        Resource = [var.session_token_secret_parameter_arn]
+      },
+      {
+        Sid      = "DecryptSessionTokenSecret"
+        Effect   = "Allow"
+        Action   = ["kms:Decrypt"]
+        Resource = [data.aws_kms_alias.ssm.target_key_arn]
+      }
+    ]
+  })
+}
+
+resource "aws_cloudwatch_log_group" "auth_agent" {
+  name              = "/aws/lambda/${local.name_prefix}-auth-agent"
+  retention_in_days = var.log_retention_days
+  tags              = local.common_tags
+}
+
+resource "aws_lambda_function" "auth_agent" {
+  function_name = "${local.name_prefix}-auth-agent"
+  role          = aws_iam_role.auth_agent.arn
+  handler       = "index.handler"
+  runtime       = "nodejs20.x"
+  timeout       = var.lambda_timeout
+  memory_size   = var.lambda_memory_size
+
+  filename         = data.archive_file.auth_agent.output_path
+  source_code_hash = data.archive_file.auth_agent.output_base64sha256
+
+  environment {
+    variables = {
+      SESSION_TOKEN_SECRET_PARAM_NAME = var.session_token_secret_parameter_name
+    }
+  }
+
+  tags = local.common_tags
+
+  depends_on = [
+    aws_cloudwatch_log_group.auth_agent,
+    aws_iam_role_policy_attachment.auth_agent_basic_logs,
+    aws_iam_role_policy.auth_agent_ssm,
   ]
 }

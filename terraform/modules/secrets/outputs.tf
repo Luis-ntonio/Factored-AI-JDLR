@@ -12,3 +12,13 @@ output "third_party_api_credentials_secret_arn" {
   description = "ARN del secreto placeholder de Secrets Manager para credenciales de terceros."
   value       = aws_secretsmanager_secret.third_party_api_credentials.arn
 }
+
+output "session_token_secret_parameter_name" {
+  description = "Nombre del parámetro SSM (SecureString) con el secreto HMAC de sesión."
+  value       = aws_ssm_parameter.session_token_secret.name
+}
+
+output "session_token_secret_parameter_arn" {
+  description = "ARN del parámetro SSM del secreto de sesión -- para IAM policies (ssm:GetParameter + kms:Decrypt) de auth-agent/conversation-agent."
+  value       = aws_ssm_parameter.session_token_secret.arn
+}

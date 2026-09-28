@@ -113,3 +113,13 @@ variable "bedrock_region_ssm_parameter_name" {
   description = "Nombre del parámetro SSM (module.secrets.bedrock_region_parameter_name) que conversation-agent/policy-agent leen en runtime vía ssm:GetParameter."
   type        = string
 }
+
+variable "session_token_secret_parameter_name" {
+  description = "Nombre del parámetro SSM SecureString (module.secrets.session_token_secret_parameter_name) que auth-agent (firma) y conversation-agent (verifica) leen en runtime."
+  type        = string
+}
+
+variable "session_token_secret_parameter_arn" {
+  description = "ARN del mismo parámetro (module.secrets.session_token_secret_parameter_arn) -- scoping exacto de la IAM policy ssm:GetParameter de auth-agent/conversation-agent."
+  type        = string
+}

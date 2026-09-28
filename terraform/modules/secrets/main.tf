@@ -35,6 +35,29 @@ resource "aws_ssm_parameter" "bedrock_region" {
   tags = local.common_tags
 }
 
+# --- Secreto HMAC de sesión (auth-agent firma, conversation-agent verifica) ---
+#
+# Generado por Terraform (nunca elegido a mano/hardcodeado) -- mismo
+# criterio que cualquier secreto real: no versionado en git, no visible en
+# ningún plan/output (`random_password.session_token_secret.result` es
+# sensitive por default). SecureString (a diferencia de los parámetros de
+# Bedrock de arriba, que son config no sensible) -- ambos Lambdas necesitan
+# `ssm:GetParameter` + `kms:Decrypt` sobre este parámetro puntual (ver
+# terraform/modules/agent, roles de auth_agent y conversation_agent).
+resource "random_password" "session_token_secret" {
+  length  = 48
+  special = false # SSM SecureString + HMAC no necesitan caracteres especiales -- simplifica debugging sin perder entropía (48 chars alfanuméricos).
+}
+
+resource "aws_ssm_parameter" "session_token_secret" {
+  name        = "/${local.name_prefix}/auth/session_token_secret"
+  description = "Secreto HMAC-SHA256 para firmar/verificar sessionToken (services/auth-agent firma, conversation-agent verifica). Generado por Terraform, nunca en git."
+  type        = "SecureString"
+  value       = random_password.session_token_secret.result
+
+  tags = local.common_tags
+}
+
 # --- Secrets Manager: valores sensibles ---
 #
 # Placeholder genérico para credenciales de terceros que el proyecto pueda

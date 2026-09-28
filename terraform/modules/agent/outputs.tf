@@ -49,3 +49,15 @@ output "escalation_agent_function_name" {
 output "escalation_agent_function_arn" {
   value = aws_lambda_function.escalation_agent.arn
 }
+
+output "auth_agent_function_name" {
+  value = aws_lambda_function.auth_agent.function_name
+}
+
+output "auth_agent_function_arn" {
+  value = aws_lambda_function.auth_agent.arn
+}
+
+output "auth_agent_invoke_arn" {
+  value = aws_lambda_function.auth_agent.invoke_arn
+}

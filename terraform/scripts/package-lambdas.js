@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
- * Bundlea y empaqueta los 6 Lambdas de lógica de negocio del pipeline
+ * Bundlea y empaqueta los 7 Lambdas de lógica de negocio del pipeline
  * (conversation-agent, policy-agent, retrieval-agent, transaction-agent,
- * verification-agent, escalation-agent) en un único archivo CJS por
+ * verification-agent, escalation-agent, auth-agent) en un único archivo CJS por
  * servicio con esbuild, y copia `policies.yaml` (raíz del monorepo) dentro
  * del paquete de los tres servicios que lo leen en runtime (policy-agent,
  * transaction-agent, verification-agent).
@@ -132,6 +132,18 @@ const LAMBDAS = [
     // policies.yaml ni ninguna otra configuración en runtime.
     copyPolicies: false,
     external: ["@aws-sdk/*"],
+  },
+  {
+    // Login de plataforma, expuesto vía API Gateway (POST /auth/login) --
+    // NUNCA invocado por la Step Function, mismo motivo por el que
+    // conversation-agent tampoco lo es. No lee policies.yaml. Mismo
+    // criterio que policy-agent (external: []): no usa ningún @aws-sdk/*
+    // "core" (dynamodb), solo client-ssm, sin garantía de que el runtime
+    // administrado lo traiga preinstalado -- se bundlea completo.
+    name: "auth-agent",
+    entry: path.join(REPO_ROOT, "services/auth-agent/src/index.ts"),
+    copyPolicies: false,
+    external: [],
   },
 ];
 

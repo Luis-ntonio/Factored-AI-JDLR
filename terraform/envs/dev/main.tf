@@ -98,6 +98,11 @@ module "agent" {
   bedrock_region                      = var.bedrock_region
   bedrock_model_id_ssm_parameter_name = module.secrets.bedrock_model_id_parameter_name
   bedrock_region_ssm_parameter_name   = module.secrets.bedrock_region_parameter_name
+
+  # Auth por rol (auth-agent firma, conversation-agent verifica) -- mismo
+  # patron que bedrock_*_ssm_parameter_name de arriba.
+  session_token_secret_parameter_name = module.secrets.session_token_secret_parameter_name
+  session_token_secret_parameter_arn  = module.secrets.session_token_secret_parameter_arn
 }
 
 module "orchestration" {
@@ -129,6 +134,12 @@ module "edge" {
   # variables.tf, docstring de attach_chat_route.
   attach_chat_route            = true
   chat_route_lambda_invoke_arn = module.orchestration.dispatcher_lambda_invoke_arn
+
+  # Login de plataforma -- mismo criterio (booleano literal separado del
+  # ARN), pero DIRECTO al Lambda auth-agent, nunca vía el dispatcher/Step
+  # Function (ver docstring de attach_auth_route en modules/edge/variables.tf).
+  attach_auth_route            = true
+  auth_route_lambda_invoke_arn = module.agent.auth_agent_invoke_arn
 
   # CORS: dominio real de CloudFront (module.frontend) en vez de "*" -- ver
   # local.cors_allow_origins arriba y terraform/modules/edge/README.md.
@@ -169,6 +180,18 @@ resource "aws_lambda_permission" "apigw_invoke_dispatcher" {
   statement_id  = "AllowAPIGatewayInvoke"
   action        = "lambda:InvokeFunction"
   function_name = module.orchestration.dispatcher_lambda_function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${module.edge.api_execution_arn}/*/*"
+}
+
+# Mismo criterio que apigw_invoke_dispatcher de arriba (vive en el root
+# module por la misma razón: único lugar con acceso a ambos outputs sin
+# dependencia circular) -- auth-agent es invocado DIRECTO por API Gateway,
+# nunca a través del dispatcher/Step Function.
+resource "aws_lambda_permission" "apigw_invoke_auth_agent" {
+  statement_id  = "AllowAPIGatewayInvoke"
+  action        = "lambda:InvokeFunction"
+  function_name = module.agent.auth_agent_function_name
   principal     = "apigateway.amazonaws.com"
   source_arn    = "${module.edge.api_execution_arn}/*/*"
 }
