@@ -3,6 +3,7 @@ import { randomUUID } from "crypto";
 import { UnderstandOutput, emptyEntities } from "@banking-agent/shared";
 import { ConversationStateStore, buildDocClientFromEnv } from "./context/state-store";
 import { buildUnderstandOutput } from "./context/context-manager";
+import { resolveRole } from "./auth/resolve-role";
 
 /**
  * Handler de Lambda para `POST /chat` (ruta ya preparada por devops en
@@ -49,6 +50,15 @@ interface ChatRequestBody {
   caseId?: string;
   customerId?: string | null;
   message: string;
+  /** Token firmado de `POST /auth/login` (`services/auth-agent`) -- ver
+   * `auth/resolve-role.ts`. `customerId` de arriba NUNCA se usa para
+   * identidad si este campo resuelve una sesión válida (la sesión manda). */
+  sessionToken?: string | null;
+  /** Metadata puramente informativa (analítica futura, ver
+   * `docs/PLAN.md`) -- nunca influye en ninguna decisión de
+   * `policies.yaml`, se persiste tal cual en `ConversationStateItem`. */
+  deviceSessionId?: string | null;
+  chatOpenedAt?: string | null;
 }
 
 function parseBody(event: APIGatewayProxyEventV2): ChatRequestBody {
@@ -64,6 +74,9 @@ function parseBody(event: APIGatewayProxyEventV2): ChatRequestBody {
     caseId: parsed.caseId,
     customerId: parsed.customerId ?? null,
     message: parsed.message,
+    sessionToken: parsed.sessionToken ?? null,
+    deviceSessionId: parsed.deviceSessionId ?? null,
+    chatOpenedAt: parsed.chatOpenedAt ?? null,
   };
 }
 
@@ -82,6 +95,7 @@ function safeFallbackOutput(caseId: string, messageId: string): UnderstandOutput
       degraded: true,
       degradedReason: "internal_error",
       historyTurns: 0,
+      role: "anonimo",
     },
   };
 }
@@ -94,13 +108,17 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
     const body = parseBody(event);
     const effectiveCaseId = body.caseId ?? caseId;
     const store = getStore();
+    const session = await resolveRole(body.sessionToken);
 
     const output = await buildUnderstandOutput(
       {
         caseId: effectiveCaseId,
-        customerId: body.customerId ?? null,
+        // La sesión verificada manda sobre lo que el cliente mande sin
+        // probar nada en `customerId` -- ver docstring de `ChatRequestBody`.
+        customerId: session.customerId ?? body.customerId ?? null,
         messageId,
         message: body.message,
+        role: session.role,
       },
       store
     );

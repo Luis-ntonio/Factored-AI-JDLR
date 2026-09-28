@@ -89,7 +89,7 @@ describe("buildUnderstandOutput — continuidad de intent a través de turnos (i
     const store = new ConversationStateStore({ tableName: "t", docClient, maxRetries: 1, baseDelayMs: 1 });
 
     const output = await buildUnderstandOutput(
-      { caseId: "case-continuity-1", customerId: null, messageId: "msg-2", message: "Es de mi tarjeta de credito" },
+      { caseId: "case-continuity-1", customerId: null, messageId: "msg-2", message: "Es de mi tarjeta de credito", role: "anonimo" },
       store
     );
 
@@ -121,7 +121,7 @@ describe("buildUnderstandOutput — continuidad de intent a través de turnos (i
     const store = new ConversationStateStore({ tableName: "t", docClient, maxRetries: 1, baseDelayMs: 1 });
 
     const output = await buildUnderstandOutput(
-      { caseId: "case-continuity-2", customerId: null, messageId: "msg-2", message: "Gano 2500 y trabajo en una empresa" },
+      { caseId: "case-continuity-2", customerId: null, messageId: "msg-2", message: "Gano 2500 y trabajo en una empresa", role: "anonimo" },
       store
     );
 

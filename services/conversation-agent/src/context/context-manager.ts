@@ -6,6 +6,7 @@ import {
   Intent,
   REQUIRED_ENTITIES_BY_INTENT,
   UnderstandOutput,
+  UserRole,
   emptyEntities,
 } from "@banking-agent/shared";
 import { ConversationStateItem, ConversationStateStore } from "./state-store";
@@ -16,6 +17,15 @@ export interface BuildUnderstandOutputInput {
   customerId: string | null;
   messageId: string;
   message: string;
+  /** Ya resuelto por `index.ts` (verificación del `sessionToken`, ver
+   * `resolveRole.ts`) ANTES de llamar acá -- este módulo no sabe nada de
+   * SSM/HMAC a propósito, mismo criterio de separación de responsabilidades
+   * que el resto del pipeline (`context-manager.ts` orquesta el turno, no
+   * verifica credenciales). SIEMPRE un valor concreto en runtime real
+   * (`"anonimo"` si no hay sesión válida) -- nunca `undefined` acá, a
+   * diferencia del campo opcional en el contrato compartido (ver docstring
+   * de `UnderstandContext.role`). */
+  role: UserRole;
 }
 
 /**
@@ -101,7 +111,7 @@ export async function buildUnderstandOutput(
   store: ConversationStateStore,
   understandingDeps: UnderstandBackendDeps = {}
 ): Promise<UnderstandOutput> {
-  const { caseId, customerId, messageId, message } = input;
+  const { caseId, customerId, messageId, message, role } = input;
 
   // Seam de backend Understand: Bedrock (tool use forzado) con fallback
   // automático a la heurística existente ante error/baja confianza — ver
@@ -180,6 +190,7 @@ export async function buildUnderstandOutput(
       degraded,
       degradedReason,
       historyTurns: turnCount,
+      role,
     },
   };
 }

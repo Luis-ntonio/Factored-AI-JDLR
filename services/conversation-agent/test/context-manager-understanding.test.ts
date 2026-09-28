@@ -65,7 +65,7 @@ describe("buildUnderstandOutput — shape del contrato es idéntico sin importar
     const store = new ConversationStateStore({ tableName: "t", docClient, maxRetries: 1, baseDelayMs: 1 });
 
     const output = await buildUnderstandOutput(
-      { caseId: "case-h", customerId: null, messageId: "msg-h", message: "Gano 2500 y trabajo en una empresa" },
+      { caseId: "case-h", customerId: null, messageId: "msg-h", message: "Gano 2500 y trabajo en una empresa", role: "anonimo" },
       store
     );
 
@@ -100,7 +100,7 @@ describe("buildUnderstandOutput — shape del contrato es idéntico sin importar
     const store = new ConversationStateStore({ tableName: "t", docClient, maxRetries: 1, baseDelayMs: 1 });
 
     const output = await buildUnderstandOutput(
-      { caseId: "case-b", customerId: "cust-1", messageId: "msg-b", message: "cualquier mensaje" },
+      { caseId: "case-b", customerId: "cust-1", messageId: "msg-b", message: "cualquier mensaje", role: "anonimo" },
       store,
       { ssmClient, bedrockClient }
     );

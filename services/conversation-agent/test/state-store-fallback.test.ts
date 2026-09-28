@@ -48,7 +48,7 @@ describe("buildUnderstandOutput — fallback de Reliability", () => {
     const store = new ConversationStateStore({ tableName: "t", docClient, maxRetries: 1, baseDelayMs: 1 });
 
     const output = await buildUnderstandOutput(
-      { caseId: "case-1", customerId: null, messageId: "msg-1", message: "Gano 2500 y trabajo en una empresa" },
+      { caseId: "case-1", customerId: null, messageId: "msg-1", message: "Gano 2500 y trabajo en una empresa", role: "anonimo" },
       store
     );
 
@@ -81,7 +81,7 @@ describe("buildUnderstandOutput — fallback de Reliability", () => {
     const store = new ConversationStateStore({ tableName: "t", docClient, maxRetries: 1, baseDelayMs: 1 });
 
     const output = await buildUnderstandOutput(
-      { caseId: "case-2", customerId: null, messageId: "msg-2", message: "Necesito 5000 para un préstamo personal" },
+      { caseId: "case-2", customerId: null, messageId: "msg-2", message: "Necesito 5000 para un préstamo personal", role: "anonimo" },
       store
     );
 
@@ -107,6 +107,7 @@ describe("buildUnderstandOutput — fallback de Reliability", () => {
         customerId: "cust-1",
         messageId: "msg-3",
         message: "Quiero saber si califico para una tarjeta de crédito",
+        role: "anonimo",
       },
       store
     );
