@@ -41,6 +41,48 @@ export function computeMissingFields(intent: Intent, entities: Entities): Entity
 }
 
 /**
+ * Decide si este turno CONTINÚA el `intent` del turno anterior (aunque el
+ * clasificador de ESTE turno haya devuelto uno distinto) o si arranca un
+ * intent nuevo.
+ *
+ * Bug real que esto corrige: `intent` se reclasificaba desde CERO en cada
+ * turno a partir del texto del mensaje actual, sin memoria de la
+ * conversación -- una respuesta corta a una pregunta CLARIFY (ej. "Es de mi
+ * tarjeta de crédito" respondiendo "¿qué tipo de producto?" de una disputa
+ * activa) suena, aislada de contexto, a una pregunta de producto nueva
+ * (`product_info`), y pisaba el flujo de disputa en curso -- `lastIntent` se
+ * persistía en `ConversationStateItem` pero nunca se leía de vuelta para
+ * nada.
+ *
+ * Regla (deliberadamente conservadora, sin tocar el clasificador de intent
+ * en sí): si HABÍA un `previousIntent` con `previousMissingFields`
+ * pendientes (el turno anterior terminó en CLARIFY, sin resolver), Y el
+ * mensaje de ESTE turno aportó un valor no nulo para AL MENOS UNO de esos
+ * campos pendientes (`incomingEntities`, extraídas de forma independiente
+ * del intent -- ver `router/entity-extractor.ts`/`bedrock-understander.ts`,
+ * ninguna condiciona qué entity buscar según el intent clasificado), se
+ * considera que el usuario está respondiendo esa pregunta pendiente y se
+ * continúa `previousIntent`, descartando `freshIntent`.
+ *
+ * En cualquier otro caso (no había intent anterior pendiente, o este mensaje
+ * no aporta nada de lo que se le pidió) se usa `freshIntent` tal cual -- un
+ * cambio de tema real sigue funcionando sin cambios, porque sus entities no
+ * van a llenar los `missing_fields` del intent anterior.
+ */
+export function resolveEffectiveIntent(
+  freshIntent: Intent,
+  incomingEntities: Entities,
+  previousIntent: Intent | null,
+  previousMissingFields: EntityKey[]
+): Intent {
+  if (previousIntent === null || previousMissingFields.length === 0) {
+    return freshIntent;
+  }
+  const answersPendingQuestion = previousMissingFields.some((key) => incomingEntities[key] !== null);
+  return answersPendingQuestion ? previousIntent : freshIntent;
+}
+
+/**
  * Orquesta el turno completo de Understand: detección de idioma, extracción
  * de entities, routing de intención, lectura/fusión/escritura de estado
  * persistido, y armado del contrato `UnderstandOutput`.
@@ -76,27 +118,32 @@ export async function buildUnderstandOutput(
   let degradedReason: DegradedReason = "none";
   let existingEntities: Entities = emptyEntities();
   let turnCount = 0;
+  let previousIntent: Intent | null = null;
 
   const readResult = await store.getState(caseId);
   if (readResult.ok) {
     if (readResult.value) {
       existingEntities = readResult.value.entities;
       turnCount = readResult.value.turnCount;
+      previousIntent = readResult.value.lastIntent;
     }
   } else {
     degraded = true;
     degradedReason = "dynamodb_read_failed";
   }
 
+  const previousMissingFields = previousIntent ? computeMissingFields(previousIntent, existingEntities) : [];
+  const effectiveIntent = resolveEffectiveIntent(intent, incomingEntities, previousIntent, previousMissingFields);
+
   const mergedEntities = mergeEntities(existingEntities, incomingEntities);
-  const missingFields = computeMissingFields(intent, mergedEntities);
+  const missingFields = computeMissingFields(effectiveIntent, mergedEntities);
   const now = new Date().toISOString();
 
   const newState: ConversationStateItem = {
     caseId,
     customerId,
     entities: mergedEntities,
-    lastIntent: intent,
+    lastIntent: effectiveIntent,
     lastLanguage: language,
     turnCount: turnCount + 1,
     updatedAt: now,
@@ -110,7 +157,7 @@ export async function buildUnderstandOutput(
       customerId,
       role: "user",
       text: message,
-      intent,
+      intent: effectiveIntent,
       language,
       createdAt: now,
     }),
@@ -122,7 +169,7 @@ export async function buildUnderstandOutput(
   }
 
   return {
-    intent,
+    intent: effectiveIntent,
     language,
     entities: mergedEntities,
     missing_fields: missingFields,
