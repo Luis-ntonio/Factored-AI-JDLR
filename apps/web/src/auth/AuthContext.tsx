@@ -26,6 +26,13 @@ interface AuthContextValue {
   requestLogin: (onSuccess?: (session: LoginSession) => void) => void;
   closeModal: () => void;
   login: (documentId: string, firstName: string, lastName: string, language: LanguageCode) => Promise<{ ok: boolean; error?: string }>;
+  /** Aplica una sesión YA resuelta (ej. por el flujo de código OTP,
+   * `verifyOtp()` en `LoginModal.tsx`) -- mismo efecto que el camino feliz
+   * de `login()` (cierra el modal, dispara `pendingSuccessCallback` con la
+   * sesión nueva) pero sin volver a pegarle a `/auth/login`. Dos métodos de
+   * login (documento+nombre, documento+código) convergen acá en un solo
+   * punto de "sesión establecida". */
+  applySession: (session: LoginSession) => void;
   logout: () => void;
 }
 
@@ -63,34 +70,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setPendingSuccessCallback(null);
   }, []);
 
-  const login = useCallback(
-    async (documentId: string, firstName: string, lastName: string, language: LanguageCode) => {
-      const result = await loginSession(documentId, firstName, lastName, language);
-      if (!result.ok) return { ok: false, error: result.error };
-
-      setSession(result.session);
+  const applySession = useCallback(
+    (newSession: LoginSession) => {
+      setSession(newSession);
       setIsModalOpen(false);
       // Se pasa la sesión recién obtenida COMO ARGUMENTO en vez de dejar que
       // el callback lea `session` del contexto -- si leyera del contexto,
       // vería el valor viejo (null): `setSession` recién programa el
       // re-render, no lo aplica sincrónicamente, así que cualquier closure
-      // creado antes de este `login()` (ej. `handleLoginSuccess` en
+      // creado antes de este punto (ej. `handleLoginSuccess` en
       // ChatPanel.tsx, capturado por LoginPrompt al momento del click) seguía
       // viendo la sesión anterior. Bug real encontrado en QA manual contra
       // AWS real: el mensaje se reenviaba tras el login pero sin
       // `sessionToken`, así que volvía a caer en el gate de anónimo.
-      pendingSuccessCallback?.(result.session);
+      pendingSuccessCallback?.(newSession);
       setPendingSuccessCallback(null);
-      return { ok: true };
     },
     [pendingSuccessCallback]
+  );
+
+  const login = useCallback(
+    async (documentId: string, firstName: string, lastName: string, language: LanguageCode) => {
+      const result = await loginSession(documentId, firstName, lastName, language);
+      if (!result.ok) return { ok: false, error: result.error };
+      applySession(result.session);
+      return { ok: true };
+    },
+    [applySession]
   );
 
   const logout = useCallback(() => setSession(null), []);
 
   const value = useMemo<AuthContextValue>(
-    () => ({ session, isModalOpen, requestLogin, closeModal, login, logout }),
-    [session, isModalOpen, requestLogin, closeModal, login, logout]
+    () => ({ session, isModalOpen, requestLogin, closeModal, login, applySession, logout }),
+    [session, isModalOpen, requestLogin, closeModal, login, applySession, logout]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
