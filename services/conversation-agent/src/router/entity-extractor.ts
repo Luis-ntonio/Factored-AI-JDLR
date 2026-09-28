@@ -1,4 +1,5 @@
 import {
+  DisputeReason,
   DocumentType,
   EmploymentStatus,
   Entities,
@@ -45,6 +46,35 @@ function includesAny(lower: string, phrases: string[]): boolean {
   return phrases.some((p) => lower.includes(p));
 }
 
+/**
+ * Extrae texto libre (no un número) en una ventana corta después de un
+ * keyword — mismo patrón de "ventana" que `findAmountNear`, pero cortando en
+ * el primer signo de puntuación de cierre de frase en vez de buscar dígitos.
+ * Best-effort deliberado (ver `merchant` en el contrato): no valida contra
+ * ningún catálogo de comercios, solo captura lo que el usuario escribió.
+ */
+function findTextNear(text: string, keywords: string[]): string | null {
+  const lower = text.toLowerCase();
+  for (const kw of keywords) {
+    const idx = lower.indexOf(kw);
+    if (idx === -1) continue;
+    const start = idx + kw.length;
+    const window = text.slice(start, start + 40);
+    const match = window.match(/^[\s:]*([^.,;!?\n]+)/);
+    const captured = match?.[1]?.trim();
+    if (captured) return captured;
+  }
+  return null;
+}
+
+function findFirstMatch(text: string, patterns: RegExp[]): string | null {
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match) return match[0];
+  }
+  return null;
+}
+
 const INCOME_KEYWORDS: Record<LanguageCode, string[]> = {
   es: ["gano", "ingreso mensual", "ingresos", "ingreso", "sueldo", "salario"],
   pt: ["ganho", "renda mensal", "renda", "salário", "salario", "recebo"],
@@ -84,6 +114,95 @@ const PRODUCT_KEYWORDS: Record<LanguageCode, Array<[ProductType, string[]]>> = {
     ["auto_loan", ["crédito veicular", "credito veicular", "financiamento de veículo", "financiamento de veiculo"]],
     ["credit_card", ["cartão de crédito", "cartao de credito", "cartão", "cartao"]],
     ["personal_loan", ["empréstimo pessoal", "emprestimo pessoal", "empréstimo", "emprestimo"]],
+  ],
+};
+
+const DISPUTED_AMOUNT_KEYWORDS: Record<LanguageCode, string[]> = {
+  es: ["cargo de", "cobro de", "compra de", "me cobraron", "cobrando"],
+  pt: ["cobrança de", "cobranca de", "compra de", "me cobraram", "cobrando"],
+};
+
+// Deliberadamente sin un catch-all genérico tipo "en "/"em " — capturaría
+// texto irrelevante en cualquier mensaje que use esa preposición (ej. "vivo
+// en Lima"). Solo keywords específicas de contexto comercial/de cargo.
+const MERCHANT_KEYWORDS: Record<LanguageCode, string[]> = {
+  es: ["en la tienda", "en el comercio", "en un comercio", "compra en", "cargo en", "cobro en", "comercio llamado", "comercio"],
+  pt: ["na loja", "no comércio", "no comercio", "compra na", "compra no", "cobrança em", "cobranca em", "comércio chamado", "comercio chamado"],
+};
+
+// Deliberadamente MUY simple: frases relativas/explícitas comunes, NO un
+// parser de fechas real (ver limitación documentada en docs/CONTRACTS.md:
+// no resuelve "ayer" contra la fecha del turno, no maneja ambigüedad de mes/
+// día por locale, no cubre todos los formatos de fecha posibles).
+const TRANSACTION_DATE_PATTERNS: Record<LanguageCode, RegExp[]> = {
+  es: [
+    /\banteayer\b/i,
+    /\bayer\b/i,
+    /\bhoy\b/i,
+    /\bla semana pasada\b/i,
+    /\bel mes pasado\b/i,
+    /\bel (lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)\b/i,
+    /\bel d[ií]a \d{1,2}\b/i,
+    /\bel \d{1,2} de (enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setiembre|octubre|noviembre|diciembre)\b/i,
+  ],
+  pt: [
+    /\banteontem\b/i,
+    /\bontem\b/i,
+    /\bhoje\b/i,
+    /\bsemana passada\b/i,
+    /\bm[eê]s passado\b/i,
+    /\bna (segunda|ter[çc]a|quarta|quinta|sexta)(-feira)?\b/i,
+    /\bno (s[aá]bado|domingo)\b/i,
+    /\bo dia \d{1,2}\b/i,
+    /\bdia \d{1,2} de (janeiro|fevereiro|mar[çc]o|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)\b/i,
+  ],
+};
+
+// Categorización por keyword. NUNCA se asigna "other" de este lado
+// (deliberado — ver docstring de `DisputeReason` en @banking-agent/shared):
+// si el mensaje no matchea ninguna de estas dos listas, el campo queda
+// `null`, y una fase posterior decide si corresponde "other".
+const DISPUTE_REASON_KEYWORDS: Record<LanguageCode, Array<[DisputeReason, string[]]>> = {
+  es: [
+    [
+      "unrecognized_charge",
+      [
+        "no reconozco",
+        "no hice esta compra",
+        "no hice esa compra",
+        "no hice esta transacción",
+        "no hice esta transaccion",
+        "cargo desconocido",
+        "cobro desconocido",
+        "cargo que no hice",
+        "compra que no hice",
+      ],
+    ],
+    [
+      "duplicate_or_overcharge",
+      ["cobro indebido", "cobro duplicado", "cargo duplicado", "me cobraron de más", "me cobraron de mas", "cobraron dos veces"],
+    ],
+  ],
+  pt: [
+    [
+      "unrecognized_charge",
+      [
+        "não reconheço",
+        "nao reconheco",
+        "não fiz essa compra",
+        "nao fiz essa compra",
+        "não fiz esta compra",
+        "nao fiz esta compra",
+        "cobrança desconhecida",
+        "cobranca desconhecida",
+        "cobrança que eu não fiz",
+        "cobranca que eu nao fiz",
+      ],
+    ],
+    [
+      "duplicate_or_overcharge",
+      ["cobrança indevida", "cobranca indevida", "cobrança duplicada", "cobranca duplicada", "me cobraram a mais", "cobraram duas vezes"],
+    ],
   ],
 };
 
@@ -159,6 +278,17 @@ export function extractEntities(message: string, language: LanguageCode): Entiti
   const doc = extractDocument(message, language);
   entities.document_id = doc.id;
   entities.document_type = doc.type;
+
+  entities.disputed_amount = findAmountNear(message, DISPUTED_AMOUNT_KEYWORDS[language]);
+  entities.merchant = findTextNear(message, MERCHANT_KEYWORDS[language]);
+  entities.transaction_date = findFirstMatch(message, TRANSACTION_DATE_PATTERNS[language]);
+
+  for (const [reason, keywords] of DISPUTE_REASON_KEYWORDS[language]) {
+    if (includesAny(lower, keywords)) {
+      entities.dispute_reason = reason;
+      break;
+    }
+  }
 
   return entities;
 }

@@ -1,6 +1,8 @@
 import { BedrockRuntimeClient, ConverseCommand, ConverseCommandOutput } from "@aws-sdk/client-bedrock-runtime";
 import {
+  DISPUTE_REASONS,
   DOCUMENT_TYPES,
+  DisputeReason,
   DocumentType,
   EMPLOYMENT_STATUSES,
   EmploymentStatus,
@@ -56,15 +58,16 @@ export interface BedrockUnderstanderOptions {
  * que el modelo clasifique con el mismo criterio que la heurística) y regla
  * explícita de "nunca inventar" entities no mencionadas.
  */
-const SYSTEM_PROMPT = `Sos el clasificador de la capa "Understand" de un agente bancario para el flujo único "credit-product info & eligibility" (información de productos de crédito y verificación de elegibilidad), en español (es) o portugués (pt) de Latinoamérica/Brasil.
+const SYSTEM_PROMPT = `Sos el clasificador de la capa "Understand" de un agente bancario, en español (es) o portugués (pt) de Latinoamérica/Brasil. Cubrís dos flujos: "credit-product info & eligibility" (información de productos de crédito y verificación de elegibilidad) y "transaction-dispute intake" (el cliente reporta un cargo/transacción que no reconoce o considera indebido).
 
 Tu única tarea es clasificar el ÚLTIMO mensaje del usuario llamando a la tool "${TOOL_NAME}" con:
 
-1. "intent" (una de estas 5 opciones exactas):
+1. "intent" (una de estas 6 opciones exactas):
    - "product_info": preguntas sobre catálogo/condiciones de productos de crédito (tasas, requisitos, plazos) SIN pedir un veredicto de elegibilidad propio.
    - "eligibility_check": el usuario quiere saber si califica/es elegible para un producto.
    - "faq": preguntas generales no transaccionales y no específicas de catálogo (horarios, canales de contacto, qué es una tasa efectiva anual, etc.).
    - "escalation_request": el usuario pide explícitamente hablar con un humano/agente/representante, sin importar si también hay datos de negocio en el mensaje. Esta intención SIEMPRE gana si está presente.
+   - "dispute_unrecognized_charge": el usuario reporta un cargo/cobro/transacción en su cuenta o tarjeta que NO reconoce, que no hizo, o que considera duplicado/indebido/cobrado de más. Esta intención gana sobre "product_info" y "eligibility_check" aunque el mensaje también mencione una tarjeta/producto (ej. "no reconozco un cargo en mi tarjeta de crédito" es "dispute_unrecognized_charge", NO "product_info").
    - "unknown": no hay señal suficiente para clasificar con confianza. NUNCA "adivines" un intent solo para evitar unknown.
 
 2. "language": "es" o "pt", el idioma de ESTE mensaje (no asumas el idioma de mensajes anteriores).
@@ -77,6 +80,10 @@ Tu única tarea es clasificar el ÚLTIMO mensaje del usuario llamando a la tool 
    - "document_type": "DNI" | "CC" | "CPF" | "RG" | "passport" | "other" | null (según el documento mencionado; si no hay documento, null).
    - "product_type": "personal_loan" | "credit_card" | "auto_loan" | "mortgage" | null.
    - "existing_customer": true si el usuario indicó ser cliente existente, false si indicó explícitamente que no lo es, null si no lo mencionó.
+   - "disputed_amount": monto del cargo/transacción disputada (número) o null. Solo relevante para "dispute_unrecognized_charge", pero completalo si el usuario lo mencionó sin importar el intent detectado.
+   - "merchant": nombre del comercio/establecimiento tal como lo escribió el usuario (texto libre, sin normalizar), o null si no lo mencionó.
+   - "transaction_date": fecha aproximada de la transacción disputada, como TEXTO LIBRE tal como la dijo el usuario (ej. "ayer", "la semana pasada", "el 3 de marzo") — NUNCA la conviertas a un formato de fecha/ISO, solo copiá la frase. null si no la mencionó.
+   - "dispute_reason": "unrecognized_charge" si el usuario dice que no reconoce el cargo o no hizo la compra/transacción; "duplicate_or_overcharge" si dice que le cobraron de más, duplicado, o que el cobro es indebido; null si no hay señal clara. NUNCA uses "other" — esa categoría es exclusiva de una fase posterior, no la asignes vos.
 
 4. "confidence": un número entre 0 y 1 que refleje qué tan seguro estás de esta clasificación completa (intent + language + entities). Usá valores bajos (< 0.5) si el mensaje es ambiguo, muy corto, o no tenés certeza.
 
@@ -104,6 +111,10 @@ function buildInputSchema() {
           document_type: { type: ["string", "null"], enum: [...DOCUMENT_TYPES, null] },
           product_type: { type: ["string", "null"], enum: [...PRODUCT_TYPES, null] },
           existing_customer: { type: ["boolean", "null"] },
+          disputed_amount: { type: ["number", "null"] },
+          merchant: { type: ["string", "null"] },
+          transaction_date: { type: ["string", "null"] },
+          dispute_reason: { type: ["string", "null"], enum: [...DISPUTE_REASONS, null] },
         },
         required: [
           "income",
@@ -113,6 +124,10 @@ function buildInputSchema() {
           "document_type",
           "product_type",
           "existing_customer",
+          "disputed_amount",
+          "merchant",
+          "transaction_date",
+          "dispute_reason",
         ],
       },
       confidence: { type: "number", minimum: 0, maximum: 1 },
@@ -288,6 +303,22 @@ function coerceToolInput(raw: Record<string, unknown>): BedrockUnderstanding {
   const existingCustomer = coerceBooleanOrNull(rawEntities.existing_customer);
   entities.existing_customer = existingCustomer.value;
   allValid = allValid && existingCustomer.valid;
+
+  const disputedAmount = coerceNumberOrNull(rawEntities.disputed_amount);
+  entities.disputed_amount = disputedAmount.value;
+  allValid = allValid && disputedAmount.valid;
+
+  const merchant = coerceStringOrNull(rawEntities.merchant);
+  entities.merchant = merchant.value;
+  allValid = allValid && merchant.valid;
+
+  const transactionDate = coerceStringOrNull(rawEntities.transaction_date);
+  entities.transaction_date = transactionDate.value;
+  allValid = allValid && transactionDate.valid;
+
+  const disputeReason = coerceEnumOrNull<DisputeReason>(rawEntities.dispute_reason, DISPUTE_REASONS);
+  entities.dispute_reason = disputeReason.value;
+  allValid = allValid && disputeReason.valid;
 
   const rawConfidence = raw.confidence;
   const confidence =

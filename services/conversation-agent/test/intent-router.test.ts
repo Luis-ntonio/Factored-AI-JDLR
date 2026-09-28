@@ -54,6 +54,34 @@ describe("routeIntent", () => {
   it("devuelve unknown cuando no hay señal suficiente", () => {
     expect(classify("Buen día", "es")).toBe("unknown");
   });
+
+  it("clasifica dispute_unrecognized_charge en español por 'no reconozco este cargo'", () => {
+    expect(classify("No reconozco este cargo en mi cuenta", "es")).toBe("dispute_unrecognized_charge");
+  });
+
+  it("clasifica dispute_unrecognized_charge en español por 'cobro indebido'", () => {
+    expect(classify("Tengo un cobro indebido en mi tarjeta", "es")).toBe("dispute_unrecognized_charge");
+  });
+
+  it("clasifica dispute_unrecognized_charge en portugués por 'não reconheço essa cobrança'", () => {
+    expect(classify("Não reconheço essa cobrança no meu cartão", "pt")).toBe("dispute_unrecognized_charge");
+  });
+
+  it("clasifica dispute_unrecognized_charge en portugués por 'cobrança indevida'", () => {
+    expect(classify("Recebi uma cobrança indevida na minha conta", "pt")).toBe("dispute_unrecognized_charge");
+  });
+
+  it("prioriza escalation_request incluso si el mensaje también menciona una disputa", () => {
+    expect(classify("Quiero hablar con un humano, no reconozco este cargo", "es")).toBe("escalation_request");
+  });
+
+  it("regresión de prioridad: un mensaje que menciona tarjeta de crédito Y una frase de disputa rutea a dispute_unrecognized_charge, no a product_info", () => {
+    expect(classify("No reconozco este cargo en mi tarjeta de crédito", "es")).toBe("dispute_unrecognized_charge");
+  });
+
+  it("regresión de prioridad (pt): tarjeta de crédito + disputa rutea a dispute_unrecognized_charge, no a product_info", () => {
+    expect(classify("Não reconheço essa cobrança no meu cartão de crédito", "pt")).toBe("dispute_unrecognized_charge");
+  });
 });
 
 // Nota: los tests de arriba pasan `language` como parámetro FIJO, por lo que

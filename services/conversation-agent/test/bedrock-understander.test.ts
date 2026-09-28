@@ -138,4 +138,128 @@ describe("understandWithBedrock", () => {
 
     expect(result.ok).toBe(false);
   });
+
+  it("camino feliz: acepta dispute_unrecognized_charge y los 4 entities nuevos de disputa", async () => {
+    const validInput = {
+      intent: "dispute_unrecognized_charge",
+      language: "es",
+      entities: {
+        income: null,
+        employment_status: null,
+        requested_amount: null,
+        document_id: "12345678",
+        document_type: "DNI",
+        product_type: "credit_card",
+        existing_customer: null,
+        disputed_amount: 150,
+        merchant: "Amazon",
+        transaction_date: "ayer",
+        dispute_reason: "unrecognized_charge",
+      },
+      confidence: 0.85,
+    };
+    const client = makeMockClient(async () => toolUseResponse(validInput));
+
+    const result = await understandWithBedrock("No reconozco un cargo de 150 en Amazon, fue ayer", config, { client });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value.intent).toBe("dispute_unrecognized_charge");
+      expect(result.value.entities.disputed_amount).toBe(150);
+      expect(result.value.entities.merchant).toBe("Amazon");
+      expect(result.value.entities.transaction_date).toBe("ayer");
+      expect(result.value.entities.dispute_reason).toBe("unrecognized_charge");
+      expect(result.value.confidence).toBe(0.85);
+    }
+  });
+
+  it("coerciona un dispute_reason fuera de enum a null y baja confidence a 0 (nunca propaga 'other' inventado por el modelo)", async () => {
+    const invalidInput = {
+      intent: "dispute_unrecognized_charge",
+      language: "es",
+      entities: {
+        income: null,
+        employment_status: null,
+        requested_amount: null,
+        document_id: null,
+        document_type: null,
+        product_type: null,
+        existing_customer: null,
+        disputed_amount: null,
+        merchant: null,
+        transaction_date: null,
+        dispute_reason: "not_a_real_reason",
+      },
+      confidence: 0.7,
+    };
+    const client = makeMockClient(async () => toolUseResponse(invalidInput));
+
+    const result = await understandWithBedrock("mensaje cualquiera", config, { client });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value.entities.dispute_reason).toBeNull();
+      expect(result.value.confidence).toBe(0);
+    }
+  });
+
+  it("acepta explícitamente dispute_reason 'other' cuando el modelo lo devuelve (categoría de reserva, válida en el enum)", async () => {
+    const validInput = {
+      intent: "dispute_unrecognized_charge",
+      language: "pt",
+      entities: {
+        income: null,
+        employment_status: null,
+        requested_amount: null,
+        document_id: null,
+        document_type: null,
+        product_type: null,
+        existing_customer: null,
+        disputed_amount: null,
+        merchant: null,
+        transaction_date: null,
+        dispute_reason: "other",
+      },
+      confidence: 0.6,
+    };
+    const client = makeMockClient(async () => toolUseResponse(validInput));
+
+    const result = await understandWithBedrock("mensaje cualquiera", config, { client });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value.entities.dispute_reason).toBe("other");
+      expect(result.value.confidence).toBe(0.6);
+    }
+  });
+
+  it("coerciona disputed_amount no numérico a null y baja confidence a 0", async () => {
+    const invalidInput = {
+      intent: "dispute_unrecognized_charge",
+      language: "es",
+      entities: {
+        income: null,
+        employment_status: null,
+        requested_amount: null,
+        document_id: null,
+        document_type: null,
+        product_type: null,
+        existing_customer: null,
+        disputed_amount: "ciento cincuenta",
+        merchant: null,
+        transaction_date: null,
+        dispute_reason: null,
+      },
+      confidence: 0.7,
+    };
+    const client = makeMockClient(async () => toolUseResponse(invalidInput));
+
+    const result = await understandWithBedrock("mensaje cualquiera", config, { client });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value.entities.disputed_amount).toBeNull();
+      expect(result.value.confidence).toBe(0);
+    }
+  });
 });

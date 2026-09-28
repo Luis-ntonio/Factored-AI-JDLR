@@ -1,21 +1,33 @@
 import { Entities, Intent, LanguageCode } from "@banking-agent/shared";
 
 /**
- * Router de intención para el flujo único "credit-product info &
- * eligibility". Heurística de keywords por idioma + señal de entities ya
- * extraídos de ESTE mensaje (ver entity-extractor.ts).
+ * Router de intención. Cubre el flujo histórico "credit-product info &
+ * eligibility" y, desde el pivot de negocio de 2026-09-27, también
+ * "transaction-dispute intake" (`dispute_unrecognized_charge`) — ver el
+ * comentario de `Intent` en `packages/shared/src/contracts/understand-
+ * output.ts` para el porqué de negocio. Heurística de keywords por idioma +
+ * señal de entities ya extraídos de ESTE mensaje (ver entity-extractor.ts).
  *
  * Prioridad de clasificación (documentada a propósito, no accidental):
  *  1. escalation_request — un pedido explícito de hablar con un humano
- *     siempre gana, incluso si el mensaje también menciona un producto.
- *  2. eligibility_check — si hay lenguaje explícito de "califico/soy
+ *     siempre gana, incluso si el mensaje también menciona un producto o
+ *     una disputa.
+ *  2. dispute_unrecognized_charge — chequeado ANTES que eligibility_check y
+ *     product_info a propósito: un mensaje de disputa típico menciona el
+ *     producto/tarjeta afectada ("no reconozco un cargo en mi tarjeta de
+ *     crédito"), lo que hace que `entities.product_type` quede no-null. Si
+ *     product_info (o incluso eligibility_check, vía su chequeo de
+ *     `product_type` implícito en el conteo de entities) se evaluara antes,
+ *     capturaría mal ese mensaje. La keyword de disputa es una señal léxica
+ *     mucho más específica que "menciona un producto", así que gana.
+ *  3. eligibility_check — si hay lenguaje explícito de "califico/soy
  *     elegible" O si el mensaje aporta >= 2 entities de elegibilidad
  *     (income, employment_status, requested_amount, document_id) en el
  *     mismo turno (señal fuerte de que el usuario está en flujo de
  *     evaluación, no solo preguntando por catálogo).
- *  3. product_info — preguntas sobre condiciones/catálogo.
- *  4. faq — preguntas generales no transaccionales.
- *  5. unknown — ninguna señal suficiente; fuerza CLARIFY en policy-agent.
+ *  4. product_info — preguntas sobre condiciones/catálogo.
+ *  5. faq — preguntas generales no transaccionales.
+ *  6. unknown — ninguna señal suficiente; fuerza CLARIFY en policy-agent.
  */
 
 const ESCALATION_KEYWORDS: Record<LanguageCode, string[]> = {
@@ -39,6 +51,55 @@ const ESCALATION_KEYWORDS: Record<LanguageCode, string[]> = {
     "quero falar com alguém",
     "quero falar com alguem",
     "operador",
+  ],
+};
+
+const DISPUTE_KEYWORDS: Record<LanguageCode, string[]> = {
+  es: [
+    "no reconozco este cargo",
+    "no reconozco el cargo",
+    "no reconozco esta transacción",
+    "no reconozco esta transaccion",
+    "no reconozco esa compra",
+    "cargo que no hice",
+    "compra que no hice",
+    "no hice esta compra",
+    "no hice esa compra",
+    "no hice esta transacción",
+    "no hice esta transaccion",
+    "cobro indebido",
+    "cobro duplicado",
+    "cargo duplicado",
+    "me cobraron de más",
+    "me cobraron de mas",
+    "cargo desconocido",
+    "cobro desconocido",
+    "disputar un cargo",
+    "disputar una transacción",
+    "disputar una transaccion",
+  ],
+  pt: [
+    "não reconheço essa cobrança",
+    "nao reconheco essa cobranca",
+    "não reconheço esta cobrança",
+    "nao reconheco esta cobranca",
+    "não reconheço essa transação",
+    "nao reconheco essa transacao",
+    "cobrança que eu não fiz",
+    "cobranca que eu nao fiz",
+    "não fiz essa compra",
+    "nao fiz essa compra",
+    "não fiz esta compra",
+    "nao fiz esta compra",
+    "cobrança indevida",
+    "cobranca indevida",
+    "cobrança duplicada",
+    "cobranca duplicada",
+    "me cobraram a mais",
+    "cobrança desconhecida",
+    "cobranca desconhecida",
+    "contestar uma cobrança",
+    "contestar uma cobranca",
   ],
 };
 
@@ -93,6 +154,10 @@ export function routeIntent(message: string, language: LanguageCode, entities: E
 
   if (includesAny(lower, ESCALATION_KEYWORDS[language])) {
     return "escalation_request";
+  }
+
+  if (includesAny(lower, DISPUTE_KEYWORDS[language])) {
+    return "dispute_unrecognized_charge";
   }
 
   const eligibilityEntityCount = ELIGIBILITY_ENTITY_KEYS.filter((k) => entities[k] !== null).length;
