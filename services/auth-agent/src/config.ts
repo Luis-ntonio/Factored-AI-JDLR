@@ -18,6 +18,11 @@ import { GetParameterCommand, SSMClient } from "@aws-sdk/client-ssm";
  * lanza, y `handler.ts` lo captura en su try/catch de nivel superior para
  * responder un error genérico (nunca firmar con un secreto inventado /
  * hardcodeado como fallback).
+ *
+ * Deliberadamente SEPARADO de `getOtpConfig()` (abajo): `/auth/login` no
+ * necesita ni depende de que Resend esté configurado -- acoplar los dos
+ * secretos en una sola función rompería el login existente si el usuario
+ * todavía no cargó la API key de Resend vía CLI.
  */
 
 export interface AuthConfig {
@@ -73,4 +78,63 @@ export async function getAuthConfig(options: GetAuthConfigOptions = {}): Promise
 /** Solo para tests -- resetea el caché en memoria entre casos. */
 export function resetAuthConfigCacheForTests(): void {
   cachedConfig = undefined;
+}
+
+/**
+ * Config del flujo OTP: API key de Resend (SecureString en SSM, la carga el
+ * usuario vía `aws ssm put-parameter --overwrite` fuera de Terraform -- ver
+ * `terraform/modules/secrets`, `aws_ssm_parameter.resend_api_key` con
+ * `lifecycle.ignore_changes`) + config no sensible leída directo del
+ * entorno (`RESEND_FROM_EMAIL`, `OTP_TABLE_NAME`).
+ *
+ * Mismo criterio que `getAuthConfig`: si la API key no está disponible,
+ * `getOtpConfig()` lanza -- `/auth/otp/request` responde error genérico,
+ * nunca finge haber enviado un email que no salió.
+ */
+export interface OtpConfig {
+  resendApiKey: string;
+  resendFromEmail: string;
+  otpTableName: string;
+}
+
+let cachedOtpConfig: OtpConfig | null | undefined;
+
+export async function getOtpConfig(options: GetAuthConfigOptions = {}): Promise<OtpConfig> {
+  if (cachedOtpConfig !== undefined && cachedOtpConfig !== null) return cachedOtpConfig;
+
+  const paramName = process.env.RESEND_API_KEY_PARAM_NAME;
+  const fromEmail = process.env.RESEND_FROM_EMAIL;
+  const otpTableName = process.env.OTP_TABLE_NAME;
+  if (!paramName || !fromEmail || !otpTableName) {
+    throw new Error("RESEND_API_KEY_PARAM_NAME / RESEND_FROM_EMAIL / OTP_TABLE_NAME env vars no configuradas");
+  }
+
+  const maxRetries = options.maxRetries ?? 2;
+  const baseDelayMs = options.baseDelayMs ?? 75;
+  const ssmClient = options.ssmClient ?? new SSMClient({});
+
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const result = await ssmClient.send(new GetParameterCommand({ Name: paramName, WithDecryption: true }));
+      const value = result.Parameter?.Value;
+      if (typeof value !== "string" || value.length === 0) {
+        throw new Error(`Parámetro SSM ${paramName} vacío o sin valor`);
+      }
+      cachedOtpConfig = { resendApiKey: value, resendFromEmail: fromEmail, otpTableName };
+      return cachedOtpConfig;
+    } catch (error) {
+      lastError = error;
+      if (attempt < maxRetries) {
+        await sleep(baseDelayMs * Math.pow(2, attempt));
+      }
+    }
+  }
+
+  throw new Error(`No se pudo leer la API key de Resend desde SSM (${paramName}): ${String(lastError)}`);
+}
+
+/** Solo para tests -- resetea el caché en memoria entre casos. */
+export function resetOtpConfigCacheForTests(): void {
+  cachedOtpConfig = undefined;
 }

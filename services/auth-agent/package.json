@@ -10,7 +10,9 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.665.0",
     "@aws-sdk/client-ssm": "^3.665.0",
+    "@aws-sdk/lib-dynamodb": "^3.665.0",
     "@banking-agent/shared": "0.1.0",
     "@banking-agent/transaction-agent": "0.1.0"
   },
