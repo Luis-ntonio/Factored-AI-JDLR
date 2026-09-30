@@ -47,6 +47,21 @@ export interface ChatClarifyResponse {
   language: LanguageCode;
   intent: Intent;
   policyDecision: PolicyDecisionLike;
+  /** Presente SOLO cuando `policyDecision.askField ===
+   * "dispute_candidate_selection"` (ver `policies.yaml`,
+   * `clarify-dispute-ambiguous-candidates`) -- transacciones reales del
+   * cliente (ya verificadas por ownership) entre las que el matcher no
+   * pudo elegir con confianza. `ClarifyQuestion` las renderiza como
+   * botones en vez de la pregunta genérica de fallback; clickear uno
+   * reenvía `transactionId` en el siguiente turno (`selectedTransactionId`
+   * en `SendChatMessageContext`), que el backend SIEMPRE revalida contra
+   * las candidatas reales antes de confiar en la elección. */
+  ambiguousCandidates?: Array<{
+    transactionId: string;
+    merchant: string | null;
+    amount: number;
+    date: string;
+  }>;
 }
 
 export interface ChatEscalateResponse {

@@ -65,6 +65,12 @@ export interface SendChatMessageContext {
   /** ISO timestamp de cuándo se maximizó el widget de chat (ver
    * `ChatWidget.tsx`) -- mismo criterio informativo que `deviceSessionId`. */
   chatOpenedAt?: string;
+  /** Respuesta estructurada a un CLARIFY post-Act de disputa (ver
+   * `ChatClarifyResponse.ambiguousCandidates`, `BotResponse.tsx`) -- el
+   * `transactionId` de la candidata que el cliente clickeó. El backend
+   * SIEMPRE lo revalida contra las candidatas reales antes de confiar en
+   * él (nunca se acepta a ciegas, ver `compute-dispute.ts`). */
+  selectedTransactionId?: string;
 }
 
 export async function sendChatMessage(
@@ -86,6 +92,7 @@ export async function sendChatMessage(
         sessionToken: context.sessionToken,
         deviceSessionId: context.deviceSessionId,
         chatOpenedAt: context.chatOpenedAt,
+        selectedTransactionId: context.selectedTransactionId,
       }),
     });
   } catch {

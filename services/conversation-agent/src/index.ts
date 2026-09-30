@@ -59,6 +59,14 @@ interface ChatRequestBody {
    * `policies.yaml`, se persiste tal cual en `ConversationStateItem`. */
   deviceSessionId?: string | null;
   chatOpenedAt?: string | null;
+  /** Respuesta estructurada del cliente a un CLARIFY post-Act de disputa
+   * ambigua (`DisputeVerificationResult.ambiguousCandidates`, ver
+   * `packages/shared/src/contracts/dispute-verification-result.ts`) --
+   * pass-through puro hasta `UnderstandContext.selectedTransactionId`,
+   * este módulo no lo interpreta ni lo valida (eso lo hace
+   * `compute-dispute.ts`, revalidándolo SIEMPRE contra las candidatas
+   * reales del turno actual, nunca a ciegas). */
+  selectedTransactionId?: string | null;
 }
 
 function parseBody(event: APIGatewayProxyEventV2): ChatRequestBody {
@@ -77,6 +85,7 @@ function parseBody(event: APIGatewayProxyEventV2): ChatRequestBody {
     sessionToken: parsed.sessionToken ?? null,
     deviceSessionId: parsed.deviceSessionId ?? null,
     chatOpenedAt: parsed.chatOpenedAt ?? null,
+    selectedTransactionId: parsed.selectedTransactionId ?? null,
   };
 }
 
@@ -119,6 +128,7 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
         messageId,
         message: body.message,
         role: session.role,
+        selectedTransactionId: body.selectedTransactionId ?? null,
       },
       store
     );

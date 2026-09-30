@@ -26,6 +26,11 @@ export interface BuildUnderstandOutputInput {
    * diferencia del campo opcional en el contrato compartido (ver docstring
    * de `UnderstandContext.role`). */
   role: UserRole;
+  /** Pass-through puro hacia `UnderstandContext.selectedTransactionId` --
+   * ver docstring de `ChatRequestBody.selectedTransactionId` en
+   * `../index.ts`. `null`/`undefined` en cualquier turno que no sea una
+   * respuesta a un CLARIFY post-Act de disputa ambigua. */
+  selectedTransactionId?: string | null;
 }
 
 /**
@@ -111,7 +116,7 @@ export async function buildUnderstandOutput(
   store: ConversationStateStore,
   understandingDeps: UnderstandBackendDeps = {}
 ): Promise<UnderstandOutput> {
-  const { caseId, customerId, messageId, message, role } = input;
+  const { caseId, customerId, messageId, message, role, selectedTransactionId } = input;
 
   // Seam de backend Understand: Bedrock (tool use forzado) con fallback
   // automático a la heurística existente ante error/baja confianza — ver
@@ -191,6 +196,7 @@ export async function buildUnderstandOutput(
       degradedReason,
       historyTurns: turnCount,
       role,
+      selectedTransactionId: selectedTransactionId ?? undefined,
     },
   };
 }

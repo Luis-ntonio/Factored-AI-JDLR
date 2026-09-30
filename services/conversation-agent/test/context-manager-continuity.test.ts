@@ -130,4 +130,37 @@ describe("buildUnderstandOutput — continuidad de intent a través de turnos (i
     // ingreso/empleo) no debe bloquearse por la continuidad.
     expect(output.intent).not.toBe("dispute_unrecognized_charge");
   });
+
+  it("selectedTransactionId (respuesta a un CLARIFY post-Act de disputa ambigua) pasa tal cual a context.selectedTransactionId", async () => {
+    process.env.UNDERSTANDING_BACKEND = "heuristic";
+    const docClient = makeMockDocClient(async (cmd) => (cmd instanceof GetCommand ? { Item: undefined } : {}));
+    const store = new ConversationStateStore({ tableName: "t", docClient, maxRetries: 1, baseDelayMs: 1 });
+
+    const output = await buildUnderstandOutput(
+      {
+        caseId: "case-selection-1",
+        customerId: null,
+        messageId: "msg-1",
+        message: "Netflix",
+        role: "cliente",
+        selectedTransactionId: "TXN-000002",
+      },
+      store
+    );
+
+    expect(output.context.selectedTransactionId).toBe("TXN-000002");
+  });
+
+  it("selectedTransactionId ausente -> context.selectedTransactionId queda undefined (nunca null/string vacío)", async () => {
+    process.env.UNDERSTANDING_BACKEND = "heuristic";
+    const docClient = makeMockDocClient(async (cmd) => (cmd instanceof GetCommand ? { Item: undefined } : {}));
+    const store = new ConversationStateStore({ tableName: "t", docClient, maxRetries: 1, baseDelayMs: 1 });
+
+    const output = await buildUnderstandOutput(
+      { caseId: "case-selection-2", customerId: null, messageId: "msg-1", message: "Hola", role: "anonimo" },
+      store
+    );
+
+    expect(output.context.selectedTransactionId).toBeUndefined();
+  });
 });
