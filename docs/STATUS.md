@@ -1284,3 +1284,32 @@ Dos llamadas `curl` reales contra `https://kr49s6ij26.execute-api.us-east-1.amaz
 - 91 tests en `transaction-agent` (monorepo completo en verde), `tsc --noEmit` limpio, `terraform validate`/`plan` limpios antes del apply real.
 - Verificación real de punta a punta contra AWS (caso positivo + control negativo), no solo el harness sintético.
 - **Qué NO se hizo todavía (explícito, próxima fase si queda tiempo):** el harness de evaluación usa un dataset 100% sintético (generado programáticamente), no transacciones/disputas reales de clientes — mide si el matcher cumple su propio diseño, no si ese diseño cubre toda la variedad real de cómo la gente describe una disputa. `DEFAULT_TAU`/`DEFAULT_MARGIN_TAU` se fijaron por inspección de 8 casos, no por búsqueda de grilla. El caso `queryStyle: "generic-category"` sin frase de fecha sigue sin ninguna señal discriminante para ningún arm (limitación de diseño declarada, no un bug) — si el usuario quiere cerrarlo, requeriría una señal adicional (ej. categoría/rubro de la transacción) que hoy no se usa en el matcher.
+
+## Fase Post-Matcher — harness robusto + sesión expirada + CLARIFY post-Act (2026-09-30)
+
+Tres piezas, todas verificadas contra AWS real (no solo tests):
+
+### 1. Harness sintético más robusto
+
+`generate-matcher-fixtures.ts` sube de 24 a 40 clientes sintéticos (80 casos) y agrega vocabulario de fecha de día de semana, montos "recordados" aproximados (±1-3%), y decoys "casi dentro" de la ventana resuelta — antes el dataset solo ejercitaba los casos fáciles. Nueva tabla de cruce `queryStyle × hasDatePhrase` en el reporte aísla la celda real de punto ciego (`generic-category` + sin fecha: Recall@1 16.7% para AMBOS arms, nivel de azar) que antes quedaba escondida dentro de desgloses marginales. Chequeo real (no asumido) de determinismo de embeddings agregado al reporte.
+
+### 2. Mensaje distinto de "sesión expirada"
+
+Gap cerrado de `EVALUATION-CRITERIA.md` (Security, punto 5): fix puramente de frontend (`ChatPanel.tsx`), sin tocar `session-token.ts`/`resolve-role.ts` (el backend ya degradaba correctamente). `AuthContext.tsx` ya persistía `expiresAt` pero solo lo consultaba al montar la página — `sendMessage()` ahora lo chequea justo antes de cada envío y agrega un aviso bilingüe (mismo mecanismo que el aviso de inactividad ya existente). Verificado real contra el frontend desplegado vía claude-in-chrome: sesión inyectada con `expiresAt` corto, esperada a que venza, mensaje enviado — aviso visible, header vuelve a "Iniciar sesión".
+
+### 3. CLARIFY post-Act para disputas ambiguas (en vez de escalar directo)
+
+Pregunta del usuario que originó esta pieza: "si falta una señal, ¿por qué no preguntarle al cliente en vez de escalar?" — investigado a fondo: el motor de reglas de policy-agent (`evaluator.ts`) YA soportaba `CLARIFY` en `post_action_rules` genéricamente, solo que ninguna regla lo usaba nunca.
+
+**Cambios**: `DisputeVerificationResult` gana `ambiguousCandidates` (top 5 del ranking, SIEMPRE presente como `[]` o poblado -- nunca ausente, ver bug de ASL abajo); `UnderstandContext` gana `selectedTransactionId` (respuesta estructurada del cliente, revalidada SIEMPRE contra las candidatas reales recalculadas, nunca confiada a ciegas); nueva regla `clarify-dispute-ambiguous-candidates` en `policies.yaml` + exclusión explícita en `escalate-dispute-transaction-not-found` (mismo mecanismo que la exclusión de `cliente_estrella` ya existente, necesaria porque "más conservador gana" le habría ganado siempre a la regla nueva); frontend con botones de selección (`DisputeCandidateSelection`, mismo patrón sentinel que `session_login`+`LoginPrompt`).
+
+**3 bugs reales encontrados y arreglados durante la implementación/verificación** (ninguno por tests solos — los tres por leer código real o verificar contra AWS real):
+1. `RouteByPostAction` de la ASL (`chat-orchestrator.asl.json.tftpl`) solo tenía rama para `ESCALATE`, `Default: RespondAuto` sin condición — un `CLARIFY` real hubiera caído ahí y se habría respondido como disputa resuelta con éxito. Agregada la rama + nuevo estado `RespondClarifyPostAction`.
+2. El prompt de Bedrock para `post_action` (`model-decider.ts`) no conocía `ambiguousCandidates` — el modelo habría propuesto `ESCALATE` a ciegas para el caso ambiguo (mismo bug de clase ya arreglado una vez para `DisputeVerificationResult`), y "más conservador gana" le habría ganado siempre a la regla `CLARIFY` nueva. Prompt actualizado; verificado en producción que el modelo real propone `CLARIFY` con 0.97 de confianza y razonamiento correcto (cita Netflix/Disney Plus por nombre).
+3. `resolveEffectiveIntent` (continuidad de intent entre turnos) solo continuaba el intent anterior si `missing_fields` (pre_action) tenía algo pendiente — una pregunta post_action ya tiene `product_type`/`document_id` completos, así que `missing_fields` queda vacío y la condición nunca se activaba. Un mensaje corto respondiendo la pregunta ("Netflix", clickeado como botón) se reclasificaba como intent `unknown` y perdía el flujo de disputa — encontrado en la PRIMERA verificación E2E real (turno 2 devolvía `status: escalate` con `intent: unknown` en vez de resolver). Fix: `selectedTransactionId` fuerza continuar `dispute_unrecognized_charge` sin importar `missing_fields`, señal explícita e inequívoca.
+
+**Verificación end-to-end real, 2 turnos, contra la API desplegada** (tras el fix #3): turno 1 ("no reconozco un cargo de 219 pesos en mi tarjeta de crédito", sin comercio ni fecha) → `status: "clarify"`, `ambiguousCandidates` con Netflix y Disney Plus reales; turno 2 (mismo `caseId`, `selectedTransactionId: "TXN-000002"`) → `status: "ok"`, `intent` correctamente `dispute_unrecognized_charge` (no perdido), `transactionId: "TXN-000002"`. Repetido en browser real vía claude-in-chrome contra el frontend desplegado: login real, mensaje real, botones de candidatas renderizados correctamente, click en "Netflix" resuelve a `TXN-000002` con tarjeta bloqueada.
+
+**Diseño deliberado sin estado nuevo en DynamoDB**: la selección se revalida cada turno recalculando las candidatas reales desde los `entities` ya persistidos (mecanismo de merge ya existente) — no hace falta recordar "qué candidatas se ofrecieron" entre turnos, evitando un cambio de esquema de persistencia.
+
+**Qué NO se hizo (deliberado)**: sin tope nuevo de reintentos si la selección no matchea (mismo nivel de tolerancia que cualquier otro campo pendiente); sin cambios en verification-agent (confirmado passthrough real) ni en el evaluador genérico de policy-agent.
