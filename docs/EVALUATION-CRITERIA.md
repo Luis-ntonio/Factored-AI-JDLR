@@ -130,14 +130,24 @@ costo, con tamaños de muestra y limitaciones.
   `CLARIFY`/`ask_field: session_login`, nunca acceso a datos financieros;
   verificado contra AWS real con los 3 roles (`anonimo`/`cliente`/
   `cliente_estrella`).
-- ⛔ **Gap real: no hay un caso de "sesión expirada" con handling explícito
-  en el chat** — el `sessionToken` expira a los 30 min (`session-token.ts`)
-  y `resolveRole` degrada correctamente a `anonimo` cuando expira (cubierto
-  por `test/session-token.test.ts`/`test/resolve-role.test.ts`), pero no
-  hay un mensaje específico al usuario distinguiendo "tu sesión expiró" de
-  "nunca iniciaste sesión" — ambos casos se ven igual (prompt de login
-  genérico). Pendiente, no crítico (el flujo sigue siendo seguro, solo
-  menos informativo).
+- ✅ **Mensaje distinto de "sesión expirada" (cerrado 2026-09-30):** fix
+  puramente de frontend, sin tocar `session-token.ts`/`resolve-role.ts`
+  (el backend ya degradaba correctamente a `anonimo`, eso nunca fue el
+  gap). `AuthContext.tsx` ya persistía `LoginSession.expiresAt` pero solo
+  lo consultaba al MONTAR la página (`loadPersistedSession()`) — una
+  sesión ya cargada no se re-validaba en memoria durante una conversación
+  activa. `ChatPanel.tsx` (`sendMessage()`, único lugar donde
+  `session?.token` se usa para construir el request) ahora chequea
+  `expiresAt` justo antes de cada envío: si venció, limpia la sesión
+  (`logout()`) y agrega un aviso bilingüe (`SESSION_EXPIRED_NOTICE`,
+  mismo mecanismo que el aviso de inactividad del chat ya existente) antes
+  de continuar el envío como anónimo. Verificado real contra el frontend
+  desplegado (`d1vi5rhqqyd97a.cloudfront.net`, claude-in-chrome): sesión
+  inyectada con `expiresAt` a 15s, esperado a que venza, mensaje enviado —
+  el aviso "Tu sesión expiró..." apareció en el historial, el header
+  volvió a "Iniciar sesión", y el backend respondió con el CLARIFY de
+  identidad esperado (comportamiento de seguridad sin cambios, ahora con
+  contexto explícito para el usuario en vez de silencio).
 
 ## 6. "A credible route to operation"
 
@@ -225,9 +235,9 @@ contra el build real desplegado en CloudFront.
   muestra declarada, no oculta.
 - **Deployment work** — pendiente real: hardening de `AdministratorAccess`
   (Security arriba), política de retención de `ttl` sin confirmar con
-  negocio, mensaje específico de "sesión expirada" en el chat (punto 5).
-  Autenticación de sesión y tests de prompt injection/acceso no autorizado
-  ya cerrados (arriba, 2026-09-28).
+  negocio. Autenticación de sesión, tests de prompt injection/acceso no
+  autorizado, y mensaje de "sesión expirada" ya cerrados (arriba,
+  2026-09-28/2026-09-30).
 - **Remaining risks** — el clasificador de fraude entrenado no está en
   producción (resultado negativo, ver punto 4) — el riesgo de fraude en el
   flujo de disputa depende hoy del campo `is_fraud`/`fraud_score` del mock/

@@ -38,6 +38,19 @@ const INACTIVITY_NOTICE: Record<LanguageCode, string> = {
   pt: "Sua sessão de chat foi encerrada por inatividade. Escreva uma mensagem para começar uma conversa nova.",
 };
 
+/** Aviso distinto de "sesión (de IDENTIDAD) expirada" -- NO confundir con
+ * INACTIVITY_NOTICE de arriba (esa es la sesión de CHAT, 5 min, nada que
+ * ver con el login). Cierra el gap documentado en docs/
+ * EVALUATION-CRITERIA.md (Security, punto 5): antes, un sessionToken
+ * vencido en medio de una conversación activa se degradaba a anónimo en
+ * silencio -- el usuario veía el mismo prompt de login genérico que si
+ * nunca hubiera iniciado sesión, sin saber que hace un momento SÍ estaba
+ * identificado. Ver chequeo en sendMessage() más abajo. */
+const SESSION_EXPIRED_NOTICE: Record<LanguageCode, string> = {
+  es: "Tu sesión expiró. Iniciá sesión de nuevo para continuar donde quedaste.",
+  pt: "Sua sessão expirou. Faça login novamente para continuar de onde parou.",
+};
+
 /**
  * Panel de chat real -- montado UNA VEZ por apertura del widget
  * (`ChatWidget.tsx`, nunca desmontado al minimizar, solo ocultado por CSS,
@@ -58,7 +71,7 @@ const INACTIVITY_NOTICE: Record<LanguageCode, string> = {
  *  3. Reload de página (implícito, ver arriba).
  */
 export function ChatPanel() {
-  const { session } = useAuth();
+  const { session, logout } = useAuth();
   const { request: launchRequest, clearRequest: clearLaunchRequest } = useChatLaunch();
   const [caseId, setCaseId] = useState<string>(() => crypto.randomUUID());
   const [chatOpenedAt, setChatOpenedAt] = useState<string>(() => new Date().toISOString());
@@ -126,13 +139,32 @@ export function ChatPanel() {
     if (!trimmed || isSending) return;
 
     resetInactivityTimer();
+
+    // Sesión de IDENTIDAD vencida en memoria (sin override explícito de un
+    // login recién hecho) -- `session` puede seguir siendo un objeto
+    // "verdadero" en React aunque su `expiresAt` ya haya pasado, porque
+    // nada lo invalida durante una conversación activa sin reload (a
+    // diferencia de `loadPersistedSession()` en AuthContext.tsx, que solo
+    // corre al montar). Se detecta y avisa ACÁ, el único lugar donde
+    // `session?.token` se usa para construir el request -- ver docstring
+    // de SESSION_EXPIRED_NOTICE arriba.
+    let effectiveSessionToken = sessionTokenOverride ?? session?.token;
+    if (!sessionTokenOverride && session && new Date(session.expiresAt).getTime() <= Date.now()) {
+      effectiveSessionToken = undefined;
+      logout();
+      setMessages((prev) => [
+        ...prev,
+        { id: `system-${Date.now()}`, role: "bot", timestamp: Date.now(), systemNotice: SESSION_EXPIRED_NOTICE[lang] },
+      ]);
+    }
+
     const turnId = crypto.randomUUID();
     const userMessage: ChatMessage = { id: turnId, role: "user", timestamp: Date.now(), text: trimmed };
     setMessages((prev) => [...prev, userMessage]);
     setIsSending(true);
 
     const result = await sendChatMessage(caseId, turnId, trimmed, lang, {
-      sessionToken: sessionTokenOverride ?? session?.token,
+      sessionToken: effectiveSessionToken,
       deviceSessionId: deviceSessionIdRef.current,
       chatOpenedAt,
     });
