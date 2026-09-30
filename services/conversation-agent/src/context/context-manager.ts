@@ -83,13 +83,32 @@ export function computeMissingFields(intent: Intent, entities: Entities): Entity
  * no aporta nada de lo que se le pidió) se usa `freshIntent` tal cual -- un
  * cambio de tema real sigue funcionando sin cambios, porque sus entities no
  * van a llenar los `missing_fields` del intent anterior.
+ *
+ * Segundo bug real corregido acá (encontrado en la verificación E2E contra
+ * AWS real de la fase CLARIFY post-Act, `policies.yaml`
+ * `clarify-dispute-ambiguous-candidates`): `missing_fields` SOLO modela
+ * preguntas `pre_action` (`REQUIRED_ENTITIES_BY_INTENT`) -- una pregunta
+ * `post_action` (candidatas ambiguas, ya con `product_type`/`document_id`
+ * completos desde el turno anterior) deja `previousMissingFields` VACÍO,
+ * así que la regla de arriba nunca se activaba. Un mensaje corto
+ * respondiendo esa pregunta (ej. clickear "Netflix", texto sin ninguna
+ * palabra de "disputa"/"cargo") se reclasificaba como `unknown` y perdía
+ * el intent en curso. `selectedTransactionId` (ver `UnderstandContext`,
+ * respuesta estructurada del cliente a esa pregunta puntual) es una señal
+ * EXPLÍCITA e inequívoca -- si está presente y el intent anterior era
+ * `dispute_unrecognized_charge`, se continúa ese intent sin importar
+ * `missing_fields`.
  */
 export function resolveEffectiveIntent(
   freshIntent: Intent,
   incomingEntities: Entities,
   previousIntent: Intent | null,
-  previousMissingFields: EntityKey[]
+  previousMissingFields: EntityKey[],
+  selectedTransactionId?: string | null
 ): Intent {
+  if (selectedTransactionId && previousIntent === "dispute_unrecognized_charge") {
+    return previousIntent;
+  }
   if (previousIntent === null || previousMissingFields.length === 0) {
     return freshIntent;
   }
@@ -148,7 +167,13 @@ export async function buildUnderstandOutput(
   }
 
   const previousMissingFields = previousIntent ? computeMissingFields(previousIntent, existingEntities) : [];
-  const effectiveIntent = resolveEffectiveIntent(intent, incomingEntities, previousIntent, previousMissingFields);
+  const effectiveIntent = resolveEffectiveIntent(
+    intent,
+    incomingEntities,
+    previousIntent,
+    previousMissingFields,
+    selectedTransactionId
+  );
 
   const mergedEntities = mergeEntities(existingEntities, incomingEntities);
   const missingFields = computeMissingFields(effectiveIntent, mergedEntities);

@@ -59,6 +59,36 @@ describe("resolveEffectiveIntent (función pura)", () => {
     ]);
     expect(result).toBe("eligibility_check");
   });
+
+  // Bug real encontrado en la verificación E2E contra AWS real de la fase
+  // CLARIFY post-Act (ver docstring de resolveEffectiveIntent): una
+  // pregunta post_action (candidatas ambiguas) deja missing_fields VACÍO
+  // (product_type/document_id ya completos) -- sin este caso especial, un
+  // mensaje corto respondiéndola ("Netflix") se reclasificaba como
+  // `unknown`, perdiendo el intent en curso.
+  it("selectedTransactionId continúa dispute_unrecognized_charge AUNQUE missing_fields esté vacío (respuesta a un CLARIFY post-Act)", () => {
+    const incoming: Entities = emptyEntities(); // "Netflix" no aporta ninguna entity nueva por sí solo
+    const result = resolveEffectiveIntent(
+      "unknown",
+      incoming,
+      "dispute_unrecognized_charge",
+      [], // missing_fields vacío -- ya estaba completo desde el turno anterior
+      "TXN-000002"
+    );
+    expect(result).toBe("dispute_unrecognized_charge");
+  });
+
+  it("selectedTransactionId NO fuerza continuidad si el intent anterior no era una disputa", () => {
+    const incoming: Entities = emptyEntities();
+    const result = resolveEffectiveIntent("unknown", incoming, "eligibility_check", [], "TXN-000002");
+    expect(result).toBe("unknown");
+  });
+
+  it("sin selectedTransactionId, el comportamiento de missing_fields vacío es exactamente el de antes (sin regresión)", () => {
+    const incoming: Entities = emptyEntities();
+    const result = resolveEffectiveIntent("unknown", incoming, "dispute_unrecognized_charge", []);
+    expect(result).toBe("unknown");
+  });
 });
 
 describe("buildUnderstandOutput — continuidad de intent a través de turnos (integración con estado persistido)", () => {
