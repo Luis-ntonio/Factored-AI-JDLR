@@ -215,6 +215,7 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
           turnId: input.context.turnId,
           entities: input.entities,
           language: input.language,
+          selectedTransactionId: input.context.selectedTransactionId ?? null,
         },
         { store: disputeStore, repository, embed: getEmbedFn() }
       );

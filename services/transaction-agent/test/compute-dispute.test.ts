@@ -190,7 +190,19 @@ describe("computeDisputeVerification — sobre el seed real (StaticTransactionRe
       { store, repository }
     );
 
-    expect(result).toEqual({ ...NOT_FOUND, caseId: "case-4" });
+    expect(result).toEqual({
+      ...NOT_FOUND,
+      caseId: "case-4",
+      // Top 5 de las 6 candidatas reales (todas score 0, orden estable =
+      // orden original del mock) -- ver ambiguousCandidates.
+      ambiguousCandidates: [
+        { transactionId: "TXN-000001", merchant: "Amazon MX", amount: 1299, date: "2026-09-20" },
+        { transactionId: "TXN-000002", merchant: "Netflix", amount: 219, date: "2026-09-22" },
+        { transactionId: "TXN-000003", merchant: "Electronics Store Miami", amount: 19200, date: "2026-09-15" },
+        { transactionId: "TXN-000005", merchant: "Starbucks Reforma", amount: 145, date: "2026-09-10" },
+        { transactionId: "TXN-000006", merchant: "Uber", amount: 89.5, date: "2026-09-05" },
+      ],
+    });
   });
 
   it("candidata ambigua por MONTO (219, Netflix vs. Disney Plus) SIN señal de fecha, sin embed -> baseline empata -> not found", async () => {
@@ -207,7 +219,14 @@ describe("computeDisputeVerification — sobre el seed real (StaticTransactionRe
       { store, repository }
     );
 
-    expect(result).toEqual({ ...NOT_FOUND, caseId: "case-amb-1" });
+    expect(result).toEqual({
+      ...NOT_FOUND,
+      caseId: "case-amb-1",
+      ambiguousCandidates: [
+        { transactionId: "TXN-000002", merchant: "Netflix", amount: 219, date: "2026-09-22" },
+        { transactionId: "TXN-000025", merchant: "Disney Plus", amount: 219, date: "2026-09-08" },
+      ],
+    });
   });
 
   it("candidata ambigua por MONTO + 'la semana pasada' -> baseline SIGUE empatando (no resuelve fechas)", async () => {
@@ -227,7 +246,14 @@ describe("computeDisputeVerification — sobre el seed real (StaticTransactionRe
       { store, repository }
     );
 
-    expect(result).toEqual({ ...NOT_FOUND, caseId: "case-amb-2" });
+    expect(result).toEqual({
+      ...NOT_FOUND,
+      caseId: "case-amb-2",
+      ambiguousCandidates: [
+        { transactionId: "TXN-000002", merchant: "Netflix", amount: 219, date: "2026-09-22" },
+        { transactionId: "TXN-000025", merchant: "Disney Plus", amount: 219, date: "2026-09-08" },
+      ],
+    });
   });
 
   it("candidata ambigua por MONTO + 'la semana pasada' CON el matcher completo -> resuelve la fecha real y desambigua a Netflix", async () => {
@@ -289,6 +315,67 @@ describe("computeDisputeVerification — sobre el seed real (StaticTransactionRe
       transactionId: "TXN-000002",
       fraudSuspected: false,
       productBlocked: true,
+    });
+  });
+
+  it("selectedTransactionId válido (respuesta a un CLARIFY post-Act previo) -> resuelve directo, sin correr el ranker", async () => {
+    const store = new InMemoryDisputeStore();
+    const repository = new StaticTransactionRepository();
+    const embedNeverCalled = async (): Promise<null> => {
+      throw new Error("no debería llamarse -- selectedTransactionId ya resuelve antes de correr el ranker");
+    };
+
+    // Mismas 2 candidatas ambiguas de case-amb-1 (TXN-000002/TXN-000025,
+    // ambas 219 MXN), pero ahora el cliente ya eligió Disney Plus en un
+    // turno anterior (ver policies.yaml, clarify-dispute-ambiguous-
+    // candidates) -- se revalida contra las candidatas reales recalculadas
+    // y se resuelve directo a esa, sin ambigüedad ni scoring.
+    const result = await computeDisputeVerification(
+      {
+        caseId: "case-amb-5",
+        turnId: "turn-1",
+        language: "es",
+        entities: baseEntities({ disputed_amount: 219 }),
+        selectedTransactionId: "TXN-000025",
+      },
+      { store, repository, embed: embedNeverCalled }
+    );
+
+    expect(result).toEqual({
+      caseId: "case-amb-5",
+      transactionFound: true,
+      transactionId: "TXN-000025",
+      fraudSuspected: false,
+      productBlocked: true,
+    });
+  });
+
+  it("selectedTransactionId que NO es una candidata real (stale/manipulado) -> se ignora, cae al flujo normal de ranking", async () => {
+    const store = new InMemoryDisputeStore();
+    const repository = new StaticTransactionRepository();
+
+    // "TXN-999999" no es ninguna de las candidatas reales de María -- nunca
+    // se confía en el valor del cliente a ciegas. Mismo resultado que
+    // case-amb-1 (sin selectedTransactionId): ninguna señal para
+    // desambiguar, not found con ambiguousCandidates.
+    const result = await computeDisputeVerification(
+      {
+        caseId: "case-amb-6",
+        turnId: "turn-1",
+        language: "es",
+        entities: baseEntities({ disputed_amount: 219 }),
+        selectedTransactionId: "TXN-999999",
+      },
+      { store, repository }
+    );
+
+    expect(result).toEqual({
+      ...NOT_FOUND,
+      caseId: "case-amb-6",
+      ambiguousCandidates: [
+        { transactionId: "TXN-000002", merchant: "Netflix", amount: 219, date: "2026-09-22" },
+        { transactionId: "TXN-000025", merchant: "Disney Plus", amount: 219, date: "2026-09-08" },
+      ],
     });
   });
 

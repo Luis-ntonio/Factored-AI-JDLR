@@ -87,4 +87,32 @@ export interface DisputeVerificationResult {
    * revisión humana la dispara la regla `post_action` de policy-agent, no un
    * bloqueo automático) ni si `transactionFound === false`. */
   productBlocked: boolean;
+
+  /**
+   * Candidatas reales (ya filtradas por ownership) que el matcher de
+   * `src/matching/transaction-matcher.ts` encontró pero NO pudo resolver
+   * con confianza -- presente SOLO cuando `transactionFound === false` Y
+   * hubo 2+ candidatas ambiguas (nunca cuando hubo 0 candidatas, ahí no hay
+   * nada que ofrecer). Acotado a un máximo de 5 (top del ranking), nunca la
+   * lista completa sin límite.
+   *
+   * Agregado para el flujo CLARIFY post-Act (`policies.yaml`, regla
+   * `clarify-dispute-ambiguous-candidates`): en vez de escalar directo a un
+   * humano ante ambigüedad, se le pregunta al cliente cuál es la
+   * transacción correcta. El cliente responde con `selectedTransactionId`
+   * (`UnderstandContext.selectedTransactionId`), que `compute-dispute.ts`
+   * SIEMPRE revalida contra las candidatas reales recalculadas en ese
+   * turno -- nunca se confía en el ID del cliente a ciegas.
+   *
+   * Nunca se interpola en un `reason` de `policies.yaml` (misma regla de
+   * seguridad `sec-no-raw-dispute-fields-in-reason`) -- el frontend
+   * renderiza esta lista desde el campo estructurado directamente.
+   */
+  ambiguousCandidates?: {
+    transactionId: string;
+    merchant: string | null;
+    amount: number;
+    /** `yyyy-mm-dd`, derivado de `Transaction.transaction_date`. */
+    date: string;
+  }[];
 }

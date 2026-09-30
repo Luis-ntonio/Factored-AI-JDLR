@@ -15,6 +15,12 @@ export interface ComputeDisputeInput {
    * de transacciones ambiguas, ver paso 6 del docstring de
    * `computeDisputeVerification`. */
   language: LanguageCode;
+  /** `UnderstandContext.selectedTransactionId` -- respuesta del cliente a
+   * una pregunta CLARIFY post-Act de un turno anterior (ver
+   * `DisputeVerificationResult.ambiguousCandidates`). SIEMPRE se revalida
+   * contra las candidatas reales recalculadas en ESTE turno (paso 6 del
+   * docstring de abajo) -- nunca se confía en el valor a ciegas. */
+  selectedTransactionId?: string | null;
 }
 
 export interface ComputeDisputeDeps {
@@ -70,9 +76,22 @@ function log(event: string, fields: Record<string, unknown>): void {
  * temprana (cliente no encontrado, sin tarjetas, sin candidatas, candidatas
  * ambiguas). Centralizado acá para que los cuatro caminos sean literalmente
  * el mismo objeto, no cuatro construcciones que puedan divergir con el
- * tiempo. */
-function notFoundResult(caseId: string): DisputeVerificationResult {
-  return { caseId, transactionFound: false, fraudSuspected: false, productBlocked: false };
+ * tiempo.
+ *
+ * `ambiguousCandidates` SOLO se pasa desde el camino "2+ candidatas sin
+ * confianza" (nunca desde "0 candidatas" -- ahí no hay nada que ofrecer).
+ * Ver `policies.yaml`, regla `clarify-dispute-ambiguous-candidates`. */
+function notFoundResult(
+  caseId: string,
+  ambiguousCandidates?: DisputeVerificationResult["ambiguousCandidates"]
+): DisputeVerificationResult {
+  return {
+    caseId,
+    transactionFound: false,
+    fraudSuspected: false,
+    productBlocked: false,
+    ...(ambiguousCandidates ? { ambiguousCandidates } : {}),
+  };
 }
 
 /**
@@ -156,8 +175,14 @@ function notFoundResult(caseId: string): DisputeVerificationResult {
  *     defensivo, mismo criterio que el paso 3).
  *
  *  6. RESOLVER EL RESULTADO:
- *     - 0 transacciones tras el filtro -> `notFoundResult`.
- *     - 2+ transacciones -> AMBIGUO. Se rankean con el matcher de
+ *     - 0 transacciones tras el filtro -> `notFoundResult` (sin
+ *       `ambiguousCandidates` -- no hay nada que ofrecer).
+ *     - 2+ transacciones -> AMBIGUO. Primero se chequea
+ *       `input.selectedTransactionId` (respuesta del cliente a un CLARIFY
+ *       post-Act de un turno anterior, ver `UnderstandContext.
+ *       selectedTransactionId`) contra estas MISMAS candidatas recién
+ *       recalculadas -- si matchea, se resuelve directo, sin ranking. Si
+ *       no matchea o está ausente, se rankean con el matcher de
  *       `./matching/transaction-matcher.ts` (baseline determinístico
  *       siempre; + embeddings reales de Bedrock si `deps.embed` está
  *       disponible) contra lo que el cliente recuerda (`merchant`,
@@ -168,10 +193,12 @@ function notFoundResult(caseId: string): DisputeVerificationResult {
  *       segundo por un margen -- nunca elige "el menos malo" entre dos
  *       candidatas parecidas), se resuelve como si fuera la única
  *       candidata, sin fabricar nada (la transacción elegida ya pasó el
- *       filtro de ownership real del paso 5). Si NO está confiado, se
- *       preserva el comportamiento ORIGINAL: `notFoundResult`, nunca se
- *       elige al azar -- mejor no encontrar nada que bloquear la tarjeta
- *       equivocada.
+ *       filtro de ownership real del paso 5). Si NO está confiado,
+ *       `notFoundResult` lleva además `ambiguousCandidates` (top 5 reales
+ *       del ranking) para que policy-agent pueda preguntarle al cliente
+ *       cuál es la correcta (`policies.yaml`,
+ *       `clarify-dispute-ambiguous-candidates`) en vez de escalar directo
+ *       -- nunca se elige al azar.
  *     - Exactamente 1 (`tx`) -> `transactionId: tx.transaction_id`,
  *       `fraudSuspected: tx.is_fraud === true`.
  *         - Si `fraudSuspected === false`: se simula la acción,
@@ -194,7 +221,7 @@ export async function computeDisputeVerification(
   input: ComputeDisputeInput,
   deps: ComputeDisputeDeps
 ): Promise<DisputeVerificationResult> {
-  const { caseId, turnId, entities, language } = input;
+  const { caseId, turnId, entities, language, selectedTransactionId } = input;
   const { store, repository, embed, now = () => new Date().toISOString() } = deps;
 
   log("idempotency_check_start", { caseId, turnId });
@@ -300,49 +327,81 @@ export async function computeDisputeVerification(
   let resolvedTx = ownedCandidates[0];
 
   if (ownedCandidates.length > 1) {
-    // Matcher de transacciones ambiguas (ver services/transaction-agent/src/
-    // matching/): antes, CUALQUIER ambigüedad se trataba como "no
-    // encontrado" sin intentar desambiguar. Ahora se rankean las
-    // candidatas -- baseline (lo que el sistema ya hacía, formalizado
-    // como score) vs modelo (embeddings reales de Bedrock + señales
-    // continuas de monto/fecha). Si el ranker está CONFIADO (top score
-    // sobre el umbral Y separado con margen del segundo), se resuelve
-    // como si fuera la única candidata -- mismo camino de abajo, sin
-    // fabricar nada: la transacción elegida es una candidata REAL que ya
-    // pasó el filtro de ownership. Si no está confiado, se preserva el
-    // comportamiento EXACTO de antes (notFoundResult -> CLARIFY/ESCALATE
-    // vía policies.yaml, sin cambios ahí).
-    const query = {
-      merchant: entities.merchant,
-      disputedAmount: entities.disputed_amount,
-      transactionDateText: entities.transaction_date,
-      referenceDateIso: now(),
-      language,
-    };
+    // Selección explícita del cliente sobre una lista de candidatas YA
+    // ofrecida en un turno anterior (CLARIFY post-Act, ver policies.yaml
+    // `clarify-dispute-ambiguous-candidates`) -- SIEMPRE revalidada contra
+    // `ownedCandidates` recién recalculadas en ESTE turno, nunca aceptada
+    // a ciegas. Si matchea, se salta el ranking por completo: no hace
+    // falta re-puntuar candidatas que el cliente ya identificó a mano. Si
+    // no matchea (ausente, stale, o de otro caso) cae al flujo normal de
+    // abajo exactamente como si no se hubiera mandado nada.
+    const selected = selectedTransactionId
+      ? ownedCandidates.find((t) => t.transaction_id === selectedTransactionId)
+      : undefined;
 
-    const decision = embed
-      ? await rankAndDecide(ownedCandidates, query, (candidate, q) => modelScore(candidate, q, embed))
-      : await rankAndDecide(ownedCandidates, query, baselineScore);
+    if (selected) {
+      log("ambiguous_candidates_resolved_by_customer_selection", {
+        caseId,
+        turnId,
+        count: ownedCandidates.length,
+        selectedTransactionId,
+      });
+      resolvedTx = selected;
+    } else {
+      // Matcher de transacciones ambiguas (ver services/transaction-agent/src/
+      // matching/): antes, CUALQUIER ambigüedad se trataba como "no
+      // encontrado" sin intentar desambiguar. Ahora se rankean las
+      // candidatas -- baseline (lo que el sistema ya hacía, formalizado
+      // como score) vs modelo (embeddings reales de Bedrock + señales
+      // continuas de monto/fecha). Si el ranker está CONFIADO (top score
+      // sobre el umbral Y separado con margen del segundo), se resuelve
+      // como si fuera la única candidata -- mismo camino de abajo, sin
+      // fabricar nada: la transacción elegida es una candidata REAL que ya
+      // pasó el filtro de ownership. Si no está confiado, en vez de
+      // rendirse directo se adjuntan las candidatas reales
+      // (`ambiguousCandidates`, top 5 del ranking) para que policy-agent
+      // pueda ofrecer un CLARIFY pidiéndole al cliente que elija, en vez
+      // de escalar a un humano sin haber intentado resolverlo con el
+      // propio cliente primero (ver policies.yaml,
+      // `clarify-dispute-ambiguous-candidates`).
+      const query = {
+        merchant: entities.merchant,
+        disputedAmount: entities.disputed_amount,
+        transactionDateText: entities.transaction_date,
+        referenceDateIso: now(),
+        language,
+      };
 
-    if (!decision.confident) {
-      log("ambiguous_candidates_unresolved", {
+      const decision = embed
+        ? await rankAndDecide(ownedCandidates, query, (candidate, q) => modelScore(candidate, q, embed))
+        : await rankAndDecide(ownedCandidates, query, baselineScore);
+
+      if (!decision.confident) {
+        log("ambiguous_candidates_unresolved", {
+          caseId,
+          turnId,
+          count: ownedCandidates.length,
+          topScore: decision.top.score,
+          usedModel: Boolean(embed),
+        });
+        const ambiguousCandidates = decision.ranked.slice(0, 5).map((r) => ({
+          transactionId: r.transaction.transaction_id,
+          merchant: r.transaction.merchant_name ?? null,
+          amount: r.transaction.amount,
+          date: r.transaction.transaction_date.slice(0, 10),
+        }));
+        return persist(notFoundResult(caseId, ambiguousCandidates));
+      }
+
+      log("ambiguous_candidates_resolved_by_matcher", {
         caseId,
         turnId,
         count: ownedCandidates.length,
         topScore: decision.top.score,
         usedModel: Boolean(embed),
       });
-      return persist(notFoundResult(caseId));
+      resolvedTx = decision.top.transaction;
     }
-
-    log("ambiguous_candidates_resolved_by_matcher", {
-      caseId,
-      turnId,
-      count: ownedCandidates.length,
-      topScore: decision.top.score,
-      usedModel: Boolean(embed),
-    });
-    resolvedTx = decision.top.transaction;
   }
 
   const tx = resolvedTx;

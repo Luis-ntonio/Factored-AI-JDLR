@@ -372,6 +372,23 @@ export interface UnderstandContext {
    * queda `undefined` en fixtures de test que no le interesa ejercitar auth.
    */
   role?: UserRole;
+
+  /**
+   * Selección estructurada del cliente sobre una lista de transacciones
+   * AMBIGUAS ya ofrecida en un turno anterior (`DisputeVerificationResult.
+   * ambiguousCandidates`, ver ese contrato) -- viene del frontend
+   * (`ChatRequestBody.selectedTransactionId`, un botón clickeado, no texto
+   * libre interpretado). Opcional -- `undefined` en cualquier turno que no
+   * sea una respuesta a esa pregunta puntual.
+   *
+   * NUNCA se confía en este valor a ciegas: `compute-dispute.ts` siempre lo
+   * revalida contra las candidatas reales (ya filtradas por ownership)
+   * recalculadas en el turno actual -- un ID inventado, de otro cliente, o
+   * que ya no aparece entre las candidatas simplemente no matchea y el
+   * flujo cae al camino normal de desambiguación, exactamente como si no
+   * se hubiera mandado nada.
+   */
+  selectedTransactionId?: string;
 }
 
 /**
