@@ -901,6 +901,17 @@ post_action_rules:
         - field: transactionFound
           op: eq
           value: false
+        # Excluye a propósito el caso "2+ candidatas ambiguas reales" --
+        # ese lo atrapa `clarify-dispute-ambiguous-candidates` de abajo
+        # (CLARIFY, pedirle al cliente que elija, antes de rendirse a un
+        # humano). Sin esta exclusión, "más conservador gana" haría que
+        # ESCALATE le gane SIEMPRE a esa regla nueva (ambas matchean
+        # cuando transactionFound === false) -- mismo motivo por el que
+        # `escalate-dispute-amount-over-threshold` excluye explícitamente
+        # a `cliente_estrella` más arriba. Con esta exclusión: "0
+        # candidatas" (nada que preguntar) sigue escalando directo acá.
+        - field: ambiguousCandidates
+          op: empty
     decision: ESCALATE
     reason: >
       No se pudo localizar ninguna transacción real del cliente que
@@ -910,6 +921,33 @@ post_action_rules:
       `transactions`/`products` reales — si no matchea nada ahí, no se puede
       autorizar bloqueo de tarjeta ni apertura de disputa sin revisión
       humana.
+
+  - id: clarify-dispute-ambiguous-candidates
+    stage: post_action
+    when:
+      all:
+        - field: transactionFound
+          op: eq
+          value: false
+        - field: ambiguousCandidates
+          op: not_empty
+    decision: CLARIFY
+    ask_field: dispute_candidate_selection
+    reason: >
+      transaction-agent encontró 2+ transacciones candidatas reales del
+      cliente (ya acotadas por ownership) pero el matcher
+      (`services/transaction-agent/src/matching/`) no tuvo confianza
+      suficiente para elegir una sola sin arriesgarse a bloquear la
+      tarjeta equivocada. En vez de escalar directo a revisión humana sin
+      haber intentado resolverlo con el propio cliente, se le pide que
+      confirme cuál de las candidatas reales es la correcta.
+      `ask_field: dispute_candidate_selection` es un sentinel reconocido
+      por el frontend (`apps/web`, `ClarifyQuestion`), NUNCA un `EntityKey`
+      real de `understand-output.ts` — mismo patrón que `session_login`.
+      Este `reason` NUNCA interpola los valores de `ambiguousCandidates`
+      (ver sección `security`, `sec-no-raw-dispute-fields-in-reason`) — el
+      frontend renderiza la lista desde ese campo estructurado
+      directamente, no desde este texto.
 
   - id: auto-dispute-transaction-confirmed-no-fraud
     stage: post_action

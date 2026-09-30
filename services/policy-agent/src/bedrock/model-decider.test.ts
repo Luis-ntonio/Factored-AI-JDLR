@@ -215,6 +215,40 @@ describe("proposeModelDecision", () => {
     expect(systemText).toContain("fraudSuspected");
   });
 
+  /** Regresión (mismo riesgo que arriba, nuevo campo): al agregar
+   * `ambiguousCandidates` a `DisputeVerificationResult` (CLARIFY post-Act
+   * para disputas ambiguas, ver `policies.yaml` `clarify-dispute-
+   * ambiguous-candidates`), el prompt tenía que aprender a distinguir ESE
+   * caso (transactionFound: false CON candidatas reales -> CLARIFY) de
+   * "no se encontró nada" (transactionFound: false SIN candidatas ->
+   * ESCALATE) -- si no, el modelo propondría ESCALATE a ciegas para ambos
+   * por la regla de desempate, y "más conservador gana" le ganaría siempre
+   * a la regla CLARIFY nueva. */
+  it("el prompt de post_action distingue ambiguousCandidates (CLARIFY) de 'no se encontró nada' (ESCALATE)", async () => {
+    const send = vi.fn().mockResolvedValue(toolUseResponse({ decision: "CLARIFY", confidence: 0.8, reasoning: "ok" }));
+
+    const ambiguousResult = {
+      caseId: "case-1",
+      transactionFound: false,
+      fraudSuspected: false,
+      productBlocked: false,
+      ambiguousCandidates: [
+        { transactionId: "TXN-000002", merchant: "Netflix", amount: 219, date: "2026-09-22" },
+        { transactionId: "TXN-000025", merchant: "Disney Plus", amount: 219, date: "2026-09-08" },
+      ],
+    };
+
+    await proposeModelDecision(ambiguousResult, "post_action", {
+      bedrockClient: { send },
+      modelId: "fake-model",
+    });
+
+    const sentCommand = send.mock.calls[0][0] as { input: { system?: Array<{ text?: string }> } };
+    const systemText = sentCommand.input.system?.[0]?.text ?? "";
+    expect(systemText).toContain("ambiguousCandidates");
+    expect(systemText).toContain("CLARIFY");
+  });
+
   /** Regresión: el prompt de sistema de `pre_action` listaba los intents
    * válidos sin `dispute_unrecognized_charge` y no describía las entidades
    * de disputa -- el modelo no tenía forma de reconocer ese intent/esas

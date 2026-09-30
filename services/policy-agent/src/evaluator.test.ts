@@ -553,4 +553,39 @@ describe("policy-agent evaluator", () => {
     expect(result.decision).toBe("ESCALATE");
     expect(result.winningRuleId).toBe("escalate-dispute-transaction-not-found");
   });
+
+  it("DisputeVerificationResult con transactionFound=false Y ambiguousCandidates -> CLARIFY vía clarify-dispute-ambiguous-candidates, NO escala directo", () => {
+    const input: DisputeVerificationResult = {
+      caseId: "x",
+      transactionFound: false,
+      fraudSuspected: false,
+      productBlocked: false,
+      ambiguousCandidates: [
+        { transactionId: "TXN-000002", merchant: "Netflix", amount: 219, date: "2026-09-22" },
+        { transactionId: "TXN-000025", merchant: "Disney Plus", amount: 219, date: "2026-09-08" },
+      ],
+    };
+    const result = evaluatePostAction(input, policy);
+    const matchedIds = result.matchedRules.map((m) => m.id);
+    // La exclusión explícita en escalate-dispute-transaction-not-found
+    // (ambiguousCandidates op: empty) hace que esa regla NI SIQUIERA
+    // matchee acá -- no es solo que pierda el desempate.
+    expect(matchedIds).not.toContain("escalate-dispute-transaction-not-found");
+    expect(result.decision).toBe("CLARIFY");
+    expect(result.winningRuleId).toBe("clarify-dispute-ambiguous-candidates");
+    expect(result.askField).toBe("dispute_candidate_selection");
+  });
+
+  it("DisputeVerificationResult con transactionFound=false Y ambiguousCandidates: []  (array vacío explícito) -> sigue escalando, no CLARIFY sin nada que preguntar", () => {
+    const input: DisputeVerificationResult = {
+      caseId: "x",
+      transactionFound: false,
+      fraudSuspected: false,
+      productBlocked: false,
+      ambiguousCandidates: [],
+    };
+    const result = evaluatePostAction(input, policy);
+    expect(result.decision).toBe("ESCALATE");
+    expect(result.winningRuleId).toBe("escalate-dispute-transaction-not-found");
+  });
 });
