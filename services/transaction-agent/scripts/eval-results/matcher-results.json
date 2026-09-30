@@ -62,10 +62,10 @@
     },
     "model": {
       "rankOfTarget": 1,
-      "confident": true,
+      "confident": false,
       "topTransactionId": "SYN-TXN-00027",
       "topCorrect": true,
-      "confidentAndCorrect": true
+      "confidentAndCorrect": false
     }
   },
   {
@@ -132,7 +132,7 @@
     "model": {
       "rankOfTarget": 2,
       "confident": false,
-      "topTransactionId": "SYN-TXN-00033",
+      "topTransactionId": "SYN-TXN-00035",
       "topCorrect": false,
       "confidentAndCorrect": false
     }
@@ -223,10 +223,10 @@
     },
     "model": {
       "rankOfTarget": 1,
-      "confident": true,
+      "confident": false,
       "topTransactionId": "SYN-TXN-00045",
       "topCorrect": true,
-      "confidentAndCorrect": true
+      "confidentAndCorrect": false
     }
   },
   {
@@ -268,11 +268,11 @@
       "confidentAndCorrect": true
     },
     "model": {
-      "rankOfTarget": 3,
-      "confident": false,
-      "topTransactionId": "SYN-TXN-00048",
-      "topCorrect": false,
-      "confidentAndCorrect": false
+      "rankOfTarget": 1,
+      "confident": true,
+      "topTransactionId": "SYN-TXN-00050",
+      "topCorrect": true,
+      "confidentAndCorrect": true
     }
   },
   {
@@ -315,10 +315,10 @@
     },
     "model": {
       "rankOfTarget": 1,
-      "confident": true,
+      "confident": false,
       "topTransactionId": "SYN-TXN-00053",
       "topCorrect": true,
-      "confidentAndCorrect": true
+      "confidentAndCorrect": false
     }
   },
   {
@@ -338,10 +338,10 @@
     },
     "model": {
       "rankOfTarget": 1,
-      "confident": true,
+      "confident": false,
       "topTransactionId": "SYN-TXN-00056",
       "topCorrect": true,
-      "confidentAndCorrect": true
+      "confidentAndCorrect": false
     }
   },
   {
@@ -406,7 +406,7 @@
       "confidentAndCorrect": false
     },
     "model": {
-      "rankOfTarget": 3,
+      "rankOfTarget": 2,
       "confident": false,
       "topTransactionId": "SYN-TXN-00063",
       "topCorrect": false,
@@ -522,10 +522,10 @@
     },
     "model": {
       "rankOfTarget": 1,
-      "confident": true,
+      "confident": false,
       "topTransactionId": "SYN-TXN-00076",
       "topCorrect": true,
-      "confidentAndCorrect": true
+      "confidentAndCorrect": false
     }
   },
   {
@@ -545,10 +545,10 @@
     },
     "model": {
       "rankOfTarget": 1,
-      "confident": false,
+      "confident": true,
       "topTransactionId": "SYN-TXN-00078",
       "topCorrect": true,
-      "confidentAndCorrect": false
+      "confidentAndCorrect": true
     }
   },
   {
@@ -591,10 +591,10 @@
     },
     "model": {
       "rankOfTarget": 1,
-      "confident": true,
+      "confident": false,
       "topTransactionId": "SYN-TXN-00084",
       "topCorrect": true,
-      "confidentAndCorrect": true
+      "confidentAndCorrect": false
     }
   },
   {
@@ -614,10 +614,10 @@
     },
     "model": {
       "rankOfTarget": 1,
-      "confident": true,
+      "confident": false,
       "topTransactionId": "SYN-TXN-00086",
       "topCorrect": true,
-      "confidentAndCorrect": true
+      "confidentAndCorrect": false
     }
   },
   {
@@ -706,10 +706,10 @@
     },
     "model": {
       "rankOfTarget": 1,
-      "confident": true,
+      "confident": false,
       "topTransactionId": "SYN-TXN-00097",
       "topCorrect": true,
-      "confidentAndCorrect": true
+      "confidentAndCorrect": false
     }
   },
   {
@@ -775,10 +775,10 @@
     },
     "model": {
       "rankOfTarget": 1,
-      "confident": true,
+      "confident": false,
       "topTransactionId": "SYN-TXN-00105",
       "topCorrect": true,
-      "confidentAndCorrect": true
+      "confidentAndCorrect": false
     }
   },
   {
@@ -798,10 +798,10 @@
     },
     "model": {
       "rankOfTarget": 1,
-      "confident": true,
+      "confident": false,
       "topTransactionId": "SYN-TXN-00106",
       "topCorrect": true,
-      "confidentAndCorrect": true
+      "confidentAndCorrect": false
     }
   },
   {
@@ -820,11 +820,11 @@
       "confidentAndCorrect": true
     },
     "model": {
-      "rankOfTarget": 2,
-      "confident": false,
-      "topTransactionId": "SYN-TXN-00108",
-      "topCorrect": false,
-      "confidentAndCorrect": false
+      "rankOfTarget": 1,
+      "confident": true,
+      "topTransactionId": "SYN-TXN-00109",
+      "topCorrect": true,
+      "confidentAndCorrect": true
     }
   },
   {
@@ -867,10 +867,10 @@
     },
     "model": {
       "rankOfTarget": 1,
-      "confident": true,
+      "confident": false,
       "topTransactionId": "SYN-TXN-00115",
       "topCorrect": true,
-      "confidentAndCorrect": true
+      "confidentAndCorrect": false
     }
   },
   {
@@ -890,10 +890,10 @@
     },
     "model": {
       "rankOfTarget": 1,
-      "confident": true,
+      "confident": false,
       "topTransactionId": "SYN-TXN-00116",
       "topCorrect": true,
-      "confidentAndCorrect": true
+      "confidentAndCorrect": false
     }
   },
   {
