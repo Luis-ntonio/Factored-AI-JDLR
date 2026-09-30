@@ -99,7 +99,7 @@ describe("computeDisputeVerification — cliente no encontrado", () => {
     const repository = new StaticTransactionRepository();
 
     const result = await computeDisputeVerification(
-      { caseId: "case-1", turnId: "turn-1", entities: baseEntities({ document_id: "NO-EXISTE-0000" }) },
+      { caseId: "case-1", turnId: "turn-1", language: "es", entities: baseEntities({ document_id: "NO-EXISTE-0000" }) },
       { store, repository }
     );
 
@@ -153,7 +153,7 @@ describe("computeDisputeVerification — cliente sin tarjetas", () => {
     );
 
     const result = await computeDisputeVerification(
-      { caseId: "case-2", turnId: "turn-1", entities: baseEntities({ document_id: "FAKE-DOC" }) },
+      { caseId: "case-2", turnId: "turn-1", language: "es", entities: baseEntities({ document_id: "FAKE-DOC" }) },
       { store, repository }
     );
 
@@ -167,27 +167,129 @@ describe("computeDisputeVerification — sobre el seed real (StaticTransactionRe
     const repository = new StaticTransactionRepository();
 
     const result = await computeDisputeVerification(
-      { caseId: "case-3", turnId: "turn-1", entities: baseEntities({ merchant: "comercio-inexistente" }) },
+      { caseId: "case-3", turnId: "turn-1", language: "es", entities: baseEntities({ merchant: "comercio-inexistente" }) },
       { store, repository }
     );
 
     expect(result).toEqual({ ...NOT_FOUND, caseId: "case-3" });
   });
 
-  it("candidata ambigua (2+ matches, sin merchant/amount para acotar) -> tratada como not found", async () => {
+  it("candidata ambigua (2+ matches, sin merchant/amount para acotar) -> ranker sin ninguna señal -> not found", async () => {
     const store = new InMemoryDisputeStore();
     const repository = new StaticTransactionRepository();
 
-    // Sin merchant/disputed_amount, findCandidateTransactions devuelve TODAS
-    // las transacciones de CUST-0001 sobre su única tarjeta (PROD-0001) -- 5
-    // candidatas (TXN-000001,2,3,5,6; TXN-000004 es de PROD-0002, Checking
-    // Account, ya excluida por ownership de tarjeta). Ambiguo a propósito.
+    // Sin merchant/disputed_amount/transaction_date, findCandidateTransactions
+    // devuelve TODAS las transacciones de CUST-0001 sobre su única tarjeta
+    // (PROD-0001) -- 6 candidatas (TXN-000001,2,3,5,6,25; TXN-000004 es de
+    // PROD-0002, Checking Account, ya excluida por ownership). El ranker
+    // (baseline, sin `embed` inyectado) no tiene NINGUNA señal para
+    // distinguirlas -- todas empatan en score 0, nunca supera `tau`, nunca
+    // "confiado". Comportamiento final idéntico al de antes de este matcher.
     const result = await computeDisputeVerification(
-      { caseId: "case-4", turnId: "turn-1", entities: baseEntities() },
+      { caseId: "case-4", turnId: "turn-1", language: "es", entities: baseEntities() },
       { store, repository }
     );
 
     expect(result).toEqual({ ...NOT_FOUND, caseId: "case-4" });
+  });
+
+  it("candidata ambigua por MONTO (219, Netflix vs. Disney Plus) SIN señal de fecha, sin embed -> baseline empata -> not found", async () => {
+    const store = new InMemoryDisputeStore();
+    const repository = new StaticTransactionRepository();
+
+    // Sin merchant ni transaction_date, solo disputed_amount: 219 matchea
+    // TXN-000002 (Netflix) Y TXN-000025 (Disney Plus, fixture agregada para
+    // este test) -- 2 candidatas reales, ninguna señal para romper el
+    // empate. Confirma que el baseline (sin `embed`) preserva el
+    // comportamiento ORIGINAL: nunca elige al azar.
+    const result = await computeDisputeVerification(
+      { caseId: "case-amb-1", turnId: "turn-1", language: "es", entities: baseEntities({ disputed_amount: 219 }) },
+      { store, repository }
+    );
+
+    expect(result).toEqual({ ...NOT_FOUND, caseId: "case-amb-1" });
+  });
+
+  it("candidata ambigua por MONTO + 'la semana pasada' -> baseline SIGUE empatando (no resuelve fechas)", async () => {
+    const store = new InMemoryDisputeStore();
+    const repository = new StaticTransactionRepository();
+
+    // El baseline premia PAREJO mencionar cualquier fecha (+0.25 para
+    // ambas candidatas), nunca resuelve la ventana real -- demuestra el
+    // límite real que motiva el modelo, no un baseline débil inventado.
+    const result = await computeDisputeVerification(
+      {
+        caseId: "case-amb-2",
+        turnId: "turn-1",
+        language: "es",
+        entities: baseEntities({ disputed_amount: 219, transaction_date: "la semana pasada" }),
+      },
+      { store, repository }
+    );
+
+    expect(result).toEqual({ ...NOT_FOUND, caseId: "case-amb-2" });
+  });
+
+  it("candidata ambigua por MONTO + 'la semana pasada' CON el matcher completo -> resuelve la fecha real y desambigua a Netflix", async () => {
+    const store = new InMemoryDisputeStore();
+    const repository = new StaticTransactionRepository();
+
+    // TXN-000002 (Netflix, 2026-09-22) cae dentro de la ventana resuelta de
+    // "la semana pasada" contada desde `now`; TXN-000025 (Disney Plus,
+    // 2026-09-08, 3 semanas antes) queda AFUERA -- a diferencia del
+    // baseline, el modelo sí resuelve la fecha real (resolve-relative-date.ts)
+    // y rompe el empate con evidencia genuina, no al azar. `embed` se pasa
+    // igual (simula que Bedrock SÍ está disponible) aunque acá no se llega
+    // a usar -- no hay `merchant` en la consulta, el término de comercio se
+    // omite con gracia.
+    const embedNeverCalled = async () => {
+      throw new Error("no debería llamarse -- entities.merchant es null en este caso");
+    };
+
+    const result = await computeDisputeVerification(
+      {
+        caseId: "case-amb-3",
+        turnId: "turn-1",
+        language: "es",
+        entities: baseEntities({ disputed_amount: 219, transaction_date: "la semana pasada" }),
+      },
+      { store, repository, embed: embedNeverCalled, now: () => "2026-09-29T12:00:00Z" }
+    );
+
+    expect(result).toEqual({
+      caseId: "case-amb-3",
+      transactionFound: true,
+      transactionId: "TXN-000002",
+      fraudSuspected: false,
+      productBlocked: true,
+    });
+  });
+
+  it("candidata ambigua CON `embed` que falla (Bedrock no disponible) -> nunca crashea, cae a lo que el resto de señales permita", async () => {
+    const store = new InMemoryDisputeStore();
+    const repository = new StaticTransactionRepository();
+    const failingEmbed = async () => null;
+
+    const result = await computeDisputeVerification(
+      {
+        caseId: "case-amb-4",
+        turnId: "turn-1",
+        language: "es",
+        entities: baseEntities({ disputed_amount: 219, transaction_date: "la semana pasada" }),
+      },
+      { store, repository, embed: failingEmbed, now: () => "2026-09-29T12:00:00Z" }
+    );
+
+    // Mismo resultado que el caso anterior -- la resolución de fecha (paso
+    // puro, no depende de `embed`) sigue funcionando aunque el cliente de
+    // embeddings falle por completo.
+    expect(result).toEqual({
+      caseId: "case-amb-4",
+      transactionFound: true,
+      transactionId: "TXN-000002",
+      fraudSuspected: false,
+      productBlocked: true,
+    });
   });
 
   it("match único sin fraude (TXN-000001, Amazon MX) -> transactionFound true, productBlocked true", async () => {
@@ -195,7 +297,7 @@ describe("computeDisputeVerification — sobre el seed real (StaticTransactionRe
     const repository = new StaticTransactionRepository();
 
     const result = await computeDisputeVerification(
-      { caseId: "case-5", turnId: "turn-1", entities: baseEntities({ merchant: "amazon" }) },
+      { caseId: "case-5", turnId: "turn-1", language: "es", entities: baseEntities({ merchant: "amazon" }) },
       { store, repository }
     );
 
@@ -216,6 +318,7 @@ describe("computeDisputeVerification — sobre el seed real (StaticTransactionRe
       {
         caseId: "case-6",
         turnId: "turn-1",
+        language: "es",
         entities: baseEntities({ merchant: "Electronics Store Miami", disputed_amount: 19200 }),
       },
       { store, repository }
@@ -237,7 +340,7 @@ describe("computeDisputeVerification — idempotencia", () => {
     const repository = new FakeTransactionRepository(
       { status: "not_found" } // cliente no encontrado, el camino más simple
     );
-    const input = { caseId: "case-idem-1", turnId: "turn-idem-1", entities: baseEntities() };
+    const input = { caseId: "case-idem-1", turnId: "turn-idem-1", language: "es" as const, entities: baseEntities() };
 
     const first = await computeDisputeVerification(input, { store, repository });
     const second = await computeDisputeVerification(input, { store, repository });
@@ -256,7 +359,7 @@ describe("computeDisputeVerification — fallback ante fallos del backend simula
     let caught: unknown;
     try {
       await computeDisputeVerification(
-        { caseId: "case-7", turnId: "turn-1", entities: baseEntities() },
+        { caseId: "case-7", turnId: "turn-1", language: "es", entities: baseEntities() },
         { store, repository }
       );
     } catch (error) {
@@ -277,7 +380,7 @@ describe("computeDisputeVerification — fallback ante fallos del backend simula
     let caught: unknown;
     try {
       await computeDisputeVerification(
-        { caseId: "case-8", turnId: "turn-1", entities: baseEntities() },
+        { caseId: "case-8", turnId: "turn-1", language: "es", entities: baseEntities() },
         { store, repository }
       );
     } catch (error) {
@@ -295,7 +398,7 @@ describe("computeDisputeVerification — fallback ante fallos del backend simula
     let caught: unknown;
     try {
       await computeDisputeVerification(
-        { caseId: "case-9", turnId: "turn-1", entities: baseEntities() },
+        { caseId: "case-9", turnId: "turn-1", language: "es", entities: baseEntities() },
         { store, repository }
       );
     } catch (error) {

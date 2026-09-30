@@ -61,7 +61,10 @@ describe("StaticTransactionRepository — findCandidateTransactions", () => {
     const result = await repo.findCandidateTransactions("CUST-0001");
     expect(result.status).toBe("found");
     if (result.status !== "found") return;
-    expect(result.value.length).toBe(6);
+    // 7, no 6 -- incluye TXN-000025 (Disney Plus), fixture de prueba
+    // agregada para el matcher de transacciones ambiguas (ver
+    // mock-core-banking.ts y compute-dispute.test.ts).
+    expect(result.value.length).toBe(7);
     expect(result.value.every((t) => t.customer_id === "CUST-0001")).toBe(true);
   });
 

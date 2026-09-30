@@ -11,6 +11,8 @@ import type { EligibilityStore } from "./store/types";
 import type { DisputeStore } from "./store/dispute-store-types";
 import { StaticTransactionRepository } from "./repository/static-transaction-repository";
 import type { TransactionRepository } from "./repository/types";
+import { createRealEmbedFn } from "./matching/bedrock-embeddings";
+import type { EmbedFn } from "./matching/transaction-matcher";
 
 export { computeEligibility, EligibilityUnavailableError } from "./compute-eligibility";
 export { computeDisputeVerification, DisputeUnavailableError } from "./compute-dispute";
@@ -95,6 +97,7 @@ let cachedStore: EligibilityStore | null = null;
 let cachedThresholds: { min: number; max: number } | null = null;
 let cachedDisputeStore: DisputeStore | null = null;
 let cachedRepository: TransactionRepository | null = null;
+let cachedEmbedFn: EmbedFn | null = null;
 
 function getStore(): EligibilityStore {
   if (cachedStore) return cachedStore;
@@ -133,6 +136,19 @@ function getRepository(): TransactionRepository {
   if (cachedRepository) return cachedRepository;
   cachedRepository = new StaticTransactionRepository();
   return cachedRepository;
+}
+
+/** `EmbedFn` real (Bedrock Titan) usada por el matcher de transacciones
+ * ambiguas de `computeDisputeVerification` -- ver `matching/
+ * bedrock-embeddings.ts`. Instanciada una sola vez por proceso Lambda,
+ * mismo patrón `cachedX`/`getX()` de arriba. La función en sí nunca lanza
+ * ni requiere red hasta que se INVOCA (la resolución de config SSM es
+ * lazy, dentro de `createRealEmbedFn`), así que cachearla acá es barato
+ * incluso en el camino donde nunca se termina llamando. */
+function getEmbedFn(): EmbedFn {
+  if (cachedEmbedFn) return cachedEmbedFn;
+  cachedEmbedFn = createRealEmbedFn();
+  return cachedEmbedFn;
 }
 
 function parseBody(event: APIGatewayProxyEventV2): UnderstandOutput {
@@ -198,8 +214,9 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
           caseId: input.context.caseId,
           turnId: input.context.turnId,
           entities: input.entities,
+          language: input.language,
         },
-        { store: disputeStore, repository }
+        { store: disputeStore, repository, embed: getEmbedFn() }
       );
 
       return respond({ status: "ok", result });

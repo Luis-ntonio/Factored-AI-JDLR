@@ -1,7 +1,8 @@
-import type { DisputeVerificationResult, Entities } from "@banking-agent/shared";
+import type { DisputeVerificationResult, Entities, LanguageCode } from "@banking-agent/shared";
 import { CARD_PRODUCT_TYPES } from "./data/mock-core-banking";
 import type { TransactionRepository } from "./repository/types";
 import type { DisputeStore } from "./store/dispute-store-types";
+import { baselineScore, modelScore, rankAndDecide, type EmbedFn } from "./matching/transaction-matcher";
 
 export interface ComputeDisputeInput {
   caseId: string;
@@ -9,11 +10,30 @@ export interface ComputeDisputeInput {
    * disparó el AUTO -- forma la `idempotencyKey` junto con `caseId`. */
   turnId: string;
   entities: Entities;
+  /** `UnderstandOutput.language` del turno -- necesario para resolver
+   * frases de fecha relativa (`entities.transaction_date`) en el matcher
+   * de transacciones ambiguas, ver paso 6 del docstring de
+   * `computeDisputeVerification`. */
+  language: LanguageCode;
 }
 
 export interface ComputeDisputeDeps {
   store: DisputeStore;
   repository: TransactionRepository;
+  /** Función de embeddings inyectable (real: Bedrock Titan, ver
+   * `matching/bedrock-embeddings.ts#createRealEmbedFn`; tests: fake/mock).
+   * Opcional -- si se omite, el matcher de candidatas ambiguas usa SOLO
+   * `baselineScore` (nunca bloquea la disputa por falta de este
+   * componente, ver paso 6). */
+  embed?: EmbedFn;
+  /** Inyectable para tests -- default `() => new Date().toISOString()`.
+   * Referencia de "ahora" para resolver frases de fecha relativa. Nunca se
+   * lee de `UnderstandContext` (ese contrato no tiene un timestamp de
+   * turno hoy) -- usar el reloj del proceso es una simplificación
+   * deliberada y documentada, el desfase de milisegundos/segundos entre el
+   * turno real y esta invocación es irrelevante para resolver "la semana
+   * pasada". */
+  now?: () => string;
 }
 
 /**
@@ -137,11 +157,21 @@ function notFoundResult(caseId: string): DisputeVerificationResult {
  *
  *  6. RESOLVER EL RESULTADO:
  *     - 0 transacciones tras el filtro -> `notFoundResult`.
- *     - 2+ transacciones -> tratado como AMBIGUO, NUNCA se fabrica un match
- *       eligiendo una al azar -> `notFoundResult`. Decisión explícita: mejor
- *       no encontrar nada que bloquear la tarjeta equivocada; una fase futura
- *       podría exponer las candidatas para que el cliente elija, fuera de
- *       scope acá.
+ *     - 2+ transacciones -> AMBIGUO. Se rankean con el matcher de
+ *       `./matching/transaction-matcher.ts` (baseline determinístico
+ *       siempre; + embeddings reales de Bedrock si `deps.embed` está
+ *       disponible) contra lo que el cliente recuerda (`merchant`,
+ *       `disputed_amount`, `transaction_date` -- este último resuelto a un
+ *       rango real de fechas por `./matching/resolve-relative-date.ts`,
+ *       algo que el filtro del paso 4 deliberadamente NO hace). Si el
+ *       ranker queda CONFIADO (mejor score sobre un umbral Y separado del
+ *       segundo por un margen -- nunca elige "el menos malo" entre dos
+ *       candidatas parecidas), se resuelve como si fuera la única
+ *       candidata, sin fabricar nada (la transacción elegida ya pasó el
+ *       filtro de ownership real del paso 5). Si NO está confiado, se
+ *       preserva el comportamiento ORIGINAL: `notFoundResult`, nunca se
+ *       elige al azar -- mejor no encontrar nada que bloquear la tarjeta
+ *       equivocada.
  *     - Exactamente 1 (`tx`) -> `transactionId: tx.transaction_id`,
  *       `fraudSuspected: tx.is_fraud === true`.
  *         - Si `fraudSuspected === false`: se simula la acción,
@@ -164,8 +194,8 @@ export async function computeDisputeVerification(
   input: ComputeDisputeInput,
   deps: ComputeDisputeDeps
 ): Promise<DisputeVerificationResult> {
-  const { caseId, turnId, entities } = input;
-  const { store, repository } = deps;
+  const { caseId, turnId, entities, language } = input;
+  const { store, repository, embed, now = () => new Date().toISOString() } = deps;
 
   log("idempotency_check_start", { caseId, turnId });
   const existing = await store.getResult(caseId, turnId);
@@ -267,12 +297,55 @@ export async function computeDisputeVerification(
     return persist(notFoundResult(caseId));
   }
 
+  let resolvedTx = ownedCandidates[0];
+
   if (ownedCandidates.length > 1) {
-    log("ambiguous_candidates_treated_as_not_found", { caseId, turnId, count: ownedCandidates.length });
-    return persist(notFoundResult(caseId));
+    // Matcher de transacciones ambiguas (ver services/transaction-agent/src/
+    // matching/): antes, CUALQUIER ambigüedad se trataba como "no
+    // encontrado" sin intentar desambiguar. Ahora se rankean las
+    // candidatas -- baseline (lo que el sistema ya hacía, formalizado
+    // como score) vs modelo (embeddings reales de Bedrock + señales
+    // continuas de monto/fecha). Si el ranker está CONFIADO (top score
+    // sobre el umbral Y separado con margen del segundo), se resuelve
+    // como si fuera la única candidata -- mismo camino de abajo, sin
+    // fabricar nada: la transacción elegida es una candidata REAL que ya
+    // pasó el filtro de ownership. Si no está confiado, se preserva el
+    // comportamiento EXACTO de antes (notFoundResult -> CLARIFY/ESCALATE
+    // vía policies.yaml, sin cambios ahí).
+    const query = {
+      merchant: entities.merchant,
+      disputedAmount: entities.disputed_amount,
+      transactionDateText: entities.transaction_date,
+      referenceDateIso: now(),
+      language,
+    };
+
+    const decision = embed
+      ? await rankAndDecide(ownedCandidates, query, (candidate, q) => modelScore(candidate, q, embed))
+      : await rankAndDecide(ownedCandidates, query, baselineScore);
+
+    if (!decision.confident) {
+      log("ambiguous_candidates_unresolved", {
+        caseId,
+        turnId,
+        count: ownedCandidates.length,
+        topScore: decision.top.score,
+        usedModel: Boolean(embed),
+      });
+      return persist(notFoundResult(caseId));
+    }
+
+    log("ambiguous_candidates_resolved_by_matcher", {
+      caseId,
+      turnId,
+      count: ownedCandidates.length,
+      topScore: decision.top.score,
+      usedModel: Boolean(embed),
+    });
+    resolvedTx = decision.top.transaction;
   }
 
-  const tx = ownedCandidates[0];
+  const tx = resolvedTx;
   const fraudSuspected = tx.is_fraud === true;
   const result: DisputeVerificationResult = {
     caseId,

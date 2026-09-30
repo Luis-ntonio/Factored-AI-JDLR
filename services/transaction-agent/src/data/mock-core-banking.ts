@@ -926,4 +926,41 @@ export const TRANSACTIONS: readonly Transaction[] = [
     is_fraud: false,
     fraud_score: 1.6,
   },
+  {
+    // Fixture de prueba DELIBERADA para el matcher de transacciones
+    // ambiguas (services/transaction-agent/src/matching/) -- mismo monto
+    // que TXN-000002 (Netflix, 219.0 MXN, 2026-09-22), para que "no
+    // reconozco un cargo de 219 pesos" sin nombrar el comercio devuelva 2
+    // candidatas reales de María (el propio comentario de
+    // compute-dispute.ts ya señalaba este ejemplo -- "los múltiples
+    // cargos de Netflix/streaming" -- antes no existía en el mock).
+    //
+    // Fecha deliberadamente LEJANA de Netflix (3 semanas antes, no un día
+    // antes): si quedara pegada a Netflix, NINGUNA señal de fecha
+    // (resuelta o no) podría desambiguar -- ambas caerían en cualquier
+    // ventana razonable de "la semana pasada". Separadas así, el baseline
+    // (que no resuelve fechas, solo premia parejo que el cliente haya
+    // mencionado alguna) sigue empatando -- demuestra su límite real --
+    // pero el modelo (resolución real de la ventana de fecha vía
+    // `resolve-relative-date.ts`) distingue correctamente cuál de las dos
+    // cae dentro de "la semana pasada" contada desde el momento del turno.
+    transaction_id: "TXN-000025",
+    transaction_date: "2026-09-08T20:15:00Z",
+    process_date: "2026-09-08",
+    product_id: "PROD-0001",
+    customer_id: "CUST-0001",
+    transaction_type: "Purchase",
+    transaction_category: "Entertainment",
+    amount: 219.0,
+    currency: "MXN",
+    channel: "Web",
+    merchant_name: "Disney Plus",
+    merchant_category: "Streaming",
+    transaction_country: "Mexico",
+    transaction_city: "Ciudad de México",
+    transaction_status: "Approved",
+    response_code: "00",
+    is_fraud: false,
+    fraud_score: 1.4,
+  },
 ] as const;
