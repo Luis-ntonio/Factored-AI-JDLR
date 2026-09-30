@@ -91,6 +91,7 @@ const NOT_FOUND: DisputeVerificationResult = {
   transactionFound: false,
   fraudSuspected: false,
   productBlocked: false,
+  ambiguousCandidates: [],
 };
 
 describe("computeDisputeVerification — cliente no encontrado", () => {
@@ -288,6 +289,7 @@ describe("computeDisputeVerification — sobre el seed real (StaticTransactionRe
       transactionId: "TXN-000002",
       fraudSuspected: false,
       productBlocked: true,
+      ambiguousCandidates: [],
     });
   });
 
@@ -315,6 +317,7 @@ describe("computeDisputeVerification — sobre el seed real (StaticTransactionRe
       transactionId: "TXN-000002",
       fraudSuspected: false,
       productBlocked: true,
+      ambiguousCandidates: [],
     });
   });
 
@@ -347,6 +350,7 @@ describe("computeDisputeVerification — sobre el seed real (StaticTransactionRe
       transactionId: "TXN-000025",
       fraudSuspected: false,
       productBlocked: true,
+      ambiguousCandidates: [],
     });
   });
 
@@ -394,6 +398,7 @@ describe("computeDisputeVerification — sobre el seed real (StaticTransactionRe
       transactionId: "TXN-000001",
       fraudSuspected: false,
       productBlocked: true,
+      ambiguousCandidates: [],
     });
   });
 
@@ -417,6 +422,7 @@ describe("computeDisputeVerification — sobre el seed real (StaticTransactionRe
       transactionId: "TXN-000003",
       fraudSuspected: true,
       productBlocked: false,
+      ambiguousCandidates: [],
     });
   });
 });

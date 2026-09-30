@@ -133,7 +133,8 @@
         "caseId.$": "$.verifyResult.Payload.data.caseId",
         "transactionFound.$": "$.verifyResult.Payload.data.transactionFound",
         "fraudSuspected.$": "$.verifyResult.Payload.data.fraudSuspected",
-        "productBlocked.$": "$.verifyResult.Payload.data.productBlocked"
+        "productBlocked.$": "$.verifyResult.Payload.data.productBlocked",
+        "ambiguousCandidates.$": "$.verifyResult.Payload.data.ambiguousCandidates"
       },
       "ResultPath": "$.postActionPayload",
       "Next": "PostActionDecide"
@@ -152,7 +153,8 @@
     "RouteByPostAction": {
       "Type": "Choice",
       "Choices": [
-        {"Variable": "$.postActionResult.Payload.decision", "StringEquals": "ESCALATE", "Next": "EscalateFromPostAction"}
+        {"Variable": "$.postActionResult.Payload.decision", "StringEquals": "ESCALATE", "Next": "EscalateFromPostAction"},
+        {"Variable": "$.postActionResult.Payload.decision", "StringEquals": "CLARIFY", "Next": "RespondClarifyPostAction"}
       ],
       "Default": "RespondAuto"
     },
@@ -186,6 +188,18 @@
         "intent.$": "$.understand.intent",
         "status": "clarify",
         "policyDecision.$": "$.decideResult.Payload"
+      },
+      "End": true
+    },
+    "RespondClarifyPostAction": {
+      "Type": "Pass",
+      "Parameters": {
+        "caseId.$": "$.understand.context.caseId",
+        "language.$": "$.understand.language",
+        "intent.$": "$.understand.intent",
+        "status": "clarify",
+        "policyDecision.$": "$.postActionResult.Payload",
+        "ambiguousCandidates.$": "$.postActionPayload.ambiguousCandidates"
       },
       "End": true
     },

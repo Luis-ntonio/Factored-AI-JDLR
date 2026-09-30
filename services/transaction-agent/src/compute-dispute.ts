@@ -78,20 +78,23 @@ function log(event: string, fields: Record<string, unknown>): void {
  * el mismo objeto, no cuatro construcciones que puedan divergir con el
  * tiempo.
  *
- * `ambiguousCandidates` SOLO se pasa desde el camino "2+ candidatas sin
- * confianza" (nunca desde "0 candidatas" -- ahí no hay nada que ofrecer).
- * Ver `policies.yaml`, regla `clarify-dispute-ambiguous-candidates`. */
+ * `ambiguousCandidates` SIEMPRE presente (default `[]`, nunca `undefined`/
+ * ausente) -- a propósito, aunque el contrato lo declara opcional: la ASL
+ * real (`terraform/modules/orchestration/asl/chat-orchestrator.asl.json.
+ * tftpl`, estado `PreparePostActionDispute`) referencia este campo con un
+ * JSONPath `.$` en TODOS los resultados de disputa, no solo el ambiguo --
+ * Step Functions lanza `States.Runtime` si un `.$` referencia una key
+ * ausente, así que "ausente" no es una opción segura acá, a diferencia de
+ * un consumidor TypeScript normal (donde `undefined`/ausente serían
+ * equivalentes). Solo el camino "2+ candidatas sin confianza" lo puebla
+ * con contenido real -- ver `policies.yaml`, regla
+ * `clarify-dispute-ambiguous-candidates` (`op: not_empty`, que trata `[]`
+ * igual que ausente). */
 function notFoundResult(
   caseId: string,
-  ambiguousCandidates?: DisputeVerificationResult["ambiguousCandidates"]
+  ambiguousCandidates: NonNullable<DisputeVerificationResult["ambiguousCandidates"]> = []
 ): DisputeVerificationResult {
-  return {
-    caseId,
-    transactionFound: false,
-    fraudSuspected: false,
-    productBlocked: false,
-    ...(ambiguousCandidates ? { ambiguousCandidates } : {}),
-  };
+  return { caseId, transactionFound: false, fraudSuspected: false, productBlocked: false, ambiguousCandidates };
 }
 
 /**
@@ -412,6 +415,10 @@ export async function computeDisputeVerification(
     transactionId: tx.transaction_id,
     fraudSuspected,
     productBlocked: !fraudSuspected,
+    // Siempre [] acá (nunca ausente) -- mismo motivo documentado en
+    // notFoundResult: la ASL real referencia este campo con un JSONPath
+    // `.$` en TODOS los resultados de disputa, encontrados o no.
+    ambiguousCandidates: [],
   };
 
   return persist(result);
