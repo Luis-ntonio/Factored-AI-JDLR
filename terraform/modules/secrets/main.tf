@@ -35,6 +35,18 @@ resource "aws_ssm_parameter" "bedrock_region" {
   tags = local.common_tags
 }
 
+# Model ID de Titan Embeddings para el matcher de transacciones disputadas
+# (services/transaction-agent/src/matching/). Mismo criterio no-sensible
+# que bedrock_model_id -- String plano.
+resource "aws_ssm_parameter" "embedding_model_id" {
+  name        = "/${local.name_prefix}/bedrock/embedding_model_id"
+  description = "Model ID de Amazon Bedrock (Titan Embeddings) usado por transaction-agent para desambiguar transacciones disputadas."
+  type        = "String"
+  value       = var.embedding_model_id
+
+  tags = local.common_tags
+}
+
 # --- Secreto HMAC de sesión (auth-agent firma, conversation-agent verifica) ---
 #
 # Generado por Terraform (nunca elegido a mano/hardcodeado) -- mismo

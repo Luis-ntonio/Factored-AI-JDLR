@@ -148,3 +148,34 @@ variable "otp_table_arn" {
   description = "ARN de la misma tabla (module.data.otp_codes_table_arn) -- scoping exacto de la IAM policy dynamodb:* de auth-agent."
   type        = string
 }
+
+# --- Embeddings IAM (matcher de transacciones disputadas,
+# services/transaction-agent/src/matching/) -- SOLO consumidas por
+# transaction_agent. A diferencia de bedrock_model_id (Claude Sonnet,
+# inference profile cross-region), Titan Embeddings se invoca DIRECTO por
+# su model ID -- ver embedding_model_arn en main.tf. ---
+
+variable "embedding_model_id" {
+  description = <<-EOT
+    Model ID de Titan Embeddings (ver module.secrets). Usado para construir
+    el ARN exacto de foundation-model al que se scopea `bedrock:InvokeModel`
+    en el IAM de transaction_agent. Nunca `Resource = "*"`.
+  EOT
+  type        = string
+}
+
+variable "embedding_region" {
+  description = "Región AWS donde se invoca Bedrock para embeddings (Titan). Default \"us-east-1\", igual que bedrock_region -- este checkpoint despliega todo en una sola región."
+  type        = string
+  default     = "us-east-1"
+}
+
+variable "embedding_model_id_ssm_parameter_name" {
+  description = "Nombre del parámetro SSM (module.secrets.embedding_model_id_parameter_name) que transaction-agent lee en runtime vía ssm:GetParameter."
+  type        = string
+}
+
+variable "embedding_model_id_ssm_parameter_arn" {
+  description = "ARN del mismo parámetro (module.secrets.embedding_model_id_parameter_arn) -- scoping exacto de la IAM policy ssm:GetParameter de transaction-agent."
+  type        = string
+}

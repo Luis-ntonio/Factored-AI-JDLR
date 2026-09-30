@@ -8,6 +8,16 @@ output "bedrock_region_parameter_name" {
   value       = aws_ssm_parameter.bedrock_region.name
 }
 
+output "embedding_model_id_parameter_name" {
+  description = "Nombre del parámetro SSM con el model ID de Titan Embeddings (matcher de transacciones disputadas)."
+  value       = aws_ssm_parameter.embedding_model_id.name
+}
+
+output "embedding_model_id_parameter_arn" {
+  description = "ARN del parámetro SSM del model ID de embeddings -- para la IAM policy (ssm:GetParameter) de transaction-agent."
+  value       = aws_ssm_parameter.embedding_model_id.arn
+}
+
 output "third_party_api_credentials_secret_arn" {
   description = "ARN del secreto placeholder de Secrets Manager para credenciales de terceros."
   value       = aws_secretsmanager_secret.third_party_api_credentials.arn

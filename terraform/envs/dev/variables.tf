@@ -77,6 +77,19 @@ variable "bedrock_region" {
   default     = "us-east-1"
 }
 
+variable "embedding_model_id" {
+  description = <<-EOT
+    Model ID de Amazon Bedrock (Titan Embeddings) para el matcher de
+    transacciones disputadas (services/transaction-agent/src/matching/).
+    A diferencia de bedrock_model_id (Claude Sonnet), se invoca DIRECTO por
+    su model ID, sin inference profile -- verificado con una invocación
+    real contra esta cuenta (devuelve un vector de 1024 dims) antes de
+    fijar este default.
+  EOT
+  type        = string
+  default     = "amazon.titan-embed-text-v2:0"
+}
+
 variable "third_party_api_credentials" {
   description = "Ver terraform/modules/secrets/variables.tf. Placeholder dummy, no un secreto real."
   type        = map(string)

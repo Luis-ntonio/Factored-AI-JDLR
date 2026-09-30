@@ -71,6 +71,7 @@ module "secrets" {
   tags                        = var.tags
   bedrock_model_id            = var.bedrock_model_id
   bedrock_region              = var.bedrock_region
+  embedding_model_id          = var.embedding_model_id
   third_party_api_credentials = var.third_party_api_credentials
 }
 
@@ -98,6 +99,14 @@ module "agent" {
   bedrock_region                      = var.bedrock_region
   bedrock_model_id_ssm_parameter_name = module.secrets.bedrock_model_id_parameter_name
   bedrock_region_ssm_parameter_name   = module.secrets.bedrock_region_parameter_name
+
+  # Embeddings IAM (fase "matcher de transacciones disputadas") -- mismo
+  # patron que bedrock_*_ssm_parameter_name de arriba, pero SOLO consumido
+  # por transaction_agent (ver terraform/modules/agent/main.tf).
+  embedding_model_id                    = var.embedding_model_id
+  embedding_region                      = var.bedrock_region
+  embedding_model_id_ssm_parameter_name = module.secrets.embedding_model_id_parameter_name
+  embedding_model_id_ssm_parameter_arn  = module.secrets.embedding_model_id_parameter_arn
 
   # Auth por rol (auth-agent firma, conversation-agent verifica) -- mismo
   # patron que bedrock_*_ssm_parameter_name de arriba.

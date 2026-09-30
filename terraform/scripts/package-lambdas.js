@@ -123,7 +123,13 @@ const LAMBDAS = [
     name: "transaction-agent",
     entry: path.join(REPO_ROOT, "services/transaction-agent/src/index.ts"),
     copyPolicies: true,
-    external: ["@aws-sdk/*"],
+    // Lista explícita (NO el wildcard "@aws-sdk/*") desde la fase "matcher
+    // de transacciones disputadas": sigue sin bundlear dynamodb/
+    // lib-dynamodb (preinstalados en el runtime), pero SÍ bundlea
+    // client-bedrock-runtime/client-ssm (nuevas dependencias de
+    // src/matching/, sin garantía de venir preinstaladas -- mismo
+    // razonamiento ya documentado arriba para conversation-agent).
+    external: AWS_SDK_CORE_EXTERNAL,
   },
   {
     // Entry point deliberado: src/handler.ts (no index.ts) -- mismo criterio

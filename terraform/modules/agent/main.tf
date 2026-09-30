@@ -214,6 +214,22 @@ locals {
     "arn:aws:ssm:${var.bedrock_region}:${data.aws_caller_identity.current.account_id}:parameter${var.bedrock_model_id_ssm_parameter_name}",
     "arn:aws:ssm:${var.bedrock_region}:${data.aws_caller_identity.current.account_id}:parameter${var.bedrock_region_ssm_parameter_name}",
   ]
+
+  # Titan Embeddings se invoca DIRECTO por su model ID, sin inference
+  # profile (a diferencia de Claude Sonnet arriba) -- verificado con una
+  # invocación real contra esta cuenta antes de fijar este diseño (ver
+  # plan/README: devuelve un vector de 1024 dims sin necesitar profile).
+  # Recurso público de AWS (sin account ID), scoped a UNA sola región
+  # (embedding_region) -- no se agregan preventivamente otras regiones
+  # porque, a diferencia del inference profile "us." de Claude, Titan no
+  # tiene routing cross-region: si una invocación real fallara por region
+  # mismatch, se agregaría esa región específica con la misma evidencia
+  # empírica que el resto de este archivo.
+  embedding_foundation_model_arn = "arn:aws:bedrock:${var.embedding_region}::foundation-model/${var.embedding_model_id}"
+
+  embedding_ssm_parameter_arns = [
+    var.embedding_model_id_ssm_parameter_arn,
+  ]
 }
 
 # =====================================================================
@@ -329,10 +345,10 @@ resource "aws_lambda_function" "conversation_agent" {
 
   environment {
     variables = {
-      CASE_STORE_TABLE_NAME          = var.case_store_table_name
-      UNDERSTANDING_BACKEND          = "bedrock"
-      BEDROCK_MODEL_ID_PARAM_NAME    = var.bedrock_model_id_ssm_parameter_name
-      BEDROCK_REGION_PARAM_NAME      = var.bedrock_region_ssm_parameter_name
+      CASE_STORE_TABLE_NAME           = var.case_store_table_name
+      UNDERSTANDING_BACKEND           = "bedrock"
+      BEDROCK_MODEL_ID_PARAM_NAME     = var.bedrock_model_id_ssm_parameter_name
+      BEDROCK_REGION_PARAM_NAME       = var.bedrock_region_ssm_parameter_name
       SESSION_TOKEN_SECRET_PARAM_NAME = var.session_token_secret_parameter_name
     }
   }
@@ -512,10 +528,14 @@ resource "aws_lambda_function" "retrieval_agent" {
 
 # =====================================================================
 # transaction-agent -- capa Act (transaccional/elegibilidad).
-# IAM de mínimo privilegio: SOLO GetItem/PutItem sobre case_store (idempotency
-# key + persistencia del resultado de elegibilidad). Sin lambda:InvokeFunction.
-# No invoca Bedrock -- el cálculo de elegibilidad sigue siendo determinístico
-# (policies.yaml embebido), fuera del scope de esta fase.
+# IAM de mínimo privilegio: GetItem/PutItem sobre case_store (idempotency
+# key + persistencia del resultado de elegibilidad), más (fase "matcher de
+# transacciones disputadas") bedrock:InvokeModel scoped al foundation-model
+# de Titan Embeddings y ssm:GetParameter scoped al parámetro de su model
+# ID -- usado SOLO para desambiguar transacciones candidatas ambiguas en el
+# flujo de disputa (services/transaction-agent/src/matching/), nunca para
+# el cálculo de elegibilidad en sí, que sigue siendo determinístico
+# (policies.yaml embebido). Sin lambda:InvokeFunction.
 # =====================================================================
 resource "aws_iam_role" "transaction_agent" {
   name               = "${local.name_prefix}-transaction-agent-role"
@@ -547,6 +567,40 @@ resource "aws_iam_role_policy" "transaction_agent_dynamodb" {
   })
 }
 
+resource "aws_iam_role_policy" "transaction_agent_bedrock" {
+  name = "${local.name_prefix}-transaction-agent-bedrock"
+  role = aws_iam_role.transaction_agent.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid      = "InvokeTitanEmbeddings"
+        Effect   = "Allow"
+        Action   = ["bedrock:InvokeModel"]
+        Resource = [local.embedding_foundation_model_arn]
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy" "transaction_agent_ssm" {
+  name = "${local.name_prefix}-transaction-agent-ssm"
+  role = aws_iam_role.transaction_agent.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid      = "ReadEmbeddingConfigParameter"
+        Effect   = "Allow"
+        Action   = ["ssm:GetParameter"]
+        Resource = local.embedding_ssm_parameter_arns
+      }
+    ]
+  })
+}
+
 resource "aws_cloudwatch_log_group" "transaction_agent" {
   name              = "/aws/lambda/${local.name_prefix}-transaction-agent"
   retention_in_days = var.log_retention_days
@@ -566,8 +620,10 @@ resource "aws_lambda_function" "transaction_agent" {
 
   environment {
     variables = {
-      CASE_STORE_TABLE_NAME = var.case_store_table_name
-      POLICY_FILE_PATH      = "/var/task/policies.yaml"
+      CASE_STORE_TABLE_NAME         = var.case_store_table_name
+      POLICY_FILE_PATH              = "/var/task/policies.yaml"
+      EMBEDDING_MODEL_ID_PARAM_NAME = var.embedding_model_id_ssm_parameter_name
+      EMBEDDING_REGION              = var.embedding_region
     }
   }
 
@@ -577,6 +633,8 @@ resource "aws_lambda_function" "transaction_agent" {
     aws_cloudwatch_log_group.transaction_agent,
     aws_iam_role_policy_attachment.transaction_agent_basic_logs,
     aws_iam_role_policy.transaction_agent_dynamodb,
+    aws_iam_role_policy.transaction_agent_bedrock,
+    aws_iam_role_policy.transaction_agent_ssm,
   ]
 }
 

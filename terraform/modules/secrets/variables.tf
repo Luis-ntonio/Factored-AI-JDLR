@@ -38,6 +38,22 @@ variable "bedrock_region" {
   default     = "us-east-1"
 }
 
+variable "embedding_model_id" {
+  description = <<-EOT
+    Model ID de Amazon Bedrock para el matcher de transacciones ambiguas
+    (`services/transaction-agent/src/matching/`). No sensible -> String
+    plano, no SecureString (mismo criterio que `bedrock_model_id`).
+
+    A diferencia de `bedrock_model_id` (Claude Sonnet, necesita un
+    inference profile cross-region -- ver README.md de `modules/agent`),
+    Titan Embeddings se invoca DIRECTO por su model ID, sin inference
+    profile -- verificado con una invocación real contra esta cuenta antes
+    de fijar este default (devuelve un vector de 1024 dims).
+  EOT
+  type        = string
+  default     = "amazon.titan-embed-text-v2:0"
+}
+
 variable "resend_api_key" {
   description = <<-EOT
     Placeholder para la API key de Resend (servicio de terceros usado para
