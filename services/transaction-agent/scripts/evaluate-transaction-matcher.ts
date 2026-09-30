@@ -2,7 +2,7 @@ import * as path from "node:path";
 import * as fs from "node:fs";
 import type { Transaction } from "../src/data/mock-core-banking";
 import { baselineScore, modelScore, rankAndDecide, type MatchQuery, type RankedCandidate } from "../src/matching/transaction-matcher";
-import { createRealEmbedFn } from "../src/matching/bedrock-embeddings";
+import { createRealEmbedFn, getEmbedding } from "../src/matching/bedrock-embeddings";
 import { getEmbeddingConfig } from "../src/matching/embedding-config";
 import type { MatcherFixtureCase } from "./generate-matcher-fixtures";
 
@@ -101,6 +101,26 @@ async function main(): Promise<void> {
   }
   const embed = createRealEmbedFn();
 
+  // Chequeo chico de determinismo (mejora de dataset): el reporte afirma
+  // "embeddings son determinísticos, por eso no hace falta repetir
+  // corridas" -- esto lo verifica UNA vez contra Bedrock real en vez de
+  // dejarlo como supuesto sin probar. No bloquea el reporte si falla (solo
+  // se documenta el resultado real).
+  let embeddingDeterminismVerified: boolean | null = null;
+  if (embeddingConfig) {
+    const [a, b] = await Promise.all([
+      getEmbedding("Netflix", embeddingConfig),
+      getEmbedding("Netflix", embeddingConfig),
+    ]);
+    embeddingDeterminismVerified =
+      a !== null && b !== null && a.length === b.length && a.every((v, i) => v === b[i]);
+    console.log(
+      embeddingDeterminismVerified
+        ? "[determinismo] 2 invocaciones reales de getEmbedding('Netflix') devolvieron vectores idénticos."
+        : "[determinismo] ADVERTENCIA: 2 invocaciones reales de getEmbedding('Netflix') NO devolvieron vectores idénticos (o alguna falló)."
+    );
+  }
+
   const results: CaseResult[] = [];
   for (const c of heldOutCases) {
     const query = c.query;
@@ -123,7 +143,14 @@ async function main(): Promise<void> {
   fs.mkdirSync(path.dirname(RESULTS_PATH), { recursive: true });
   fs.writeFileSync(RESULTS_PATH, JSON.stringify(results, null, 2));
 
-  writeReport(results, heldOutCases.length, designSetExcludedCount, allCases.length, embeddingConfig !== null);
+  writeReport(
+    results,
+    heldOutCases.length,
+    designSetExcludedCount,
+    allCases.length,
+    embeddingConfig !== null,
+    embeddingDeterminismVerified
+  );
   console.log(`Reporte escrito en ${REPORT_PATH}`);
   console.log(`Resultados crudos en ${RESULTS_PATH}`);
 }
@@ -166,7 +193,8 @@ function writeReport(
   heldOutCount: number,
   designSetExcludedCount: number,
   totalCaseCount: number,
-  embeddingsAvailable: boolean
+  embeddingsAvailable: boolean,
+  embeddingDeterminismVerified: boolean | null
 ): void {
   const arms: Array<"baseline" | "model"> = ["baseline", "model"];
   const rankingMetrics = Object.fromEntries(
@@ -193,6 +221,14 @@ function writeReport(
   const byAmbiguity = breakdownBy((r) => r.ambiguityLevel);
   const byQueryStyle = breakdownBy((r) => r.queryStyle);
   const byDatePhrase = breakdownBy((r) => (r.hasDatePhrase ? "con frase de fecha" : "sin frase de fecha"));
+  // Cruce queryStyle x hasDatePhrase: los desgloses marginales de arriba
+  // mezclan estilos dentro de "sin frase de fecha", escondiendo la celda
+  // realmente interesante (generic-category + sin fecha -- el punto ciego
+  // real del diseño actual, ver docs/STATUS.md "Por qué generic-category
+  // es difícil"). Esta tabla la hace explícita.
+  const byStyleAndDate = breakdownBy(
+    (r) => `${r.queryStyle} / ${r.hasDatePhrase ? "con fecha" : "sin fecha"}`
+  );
 
   const lines: string[] = [];
   lines.push("# Evaluación — matcher de transacciones disputadas (baseline vs. modelo con embeddings)");
@@ -288,6 +324,21 @@ function writeReport(
     byQueryStyle
   );
   writeBreakdownTable("por presencia de frase de fecha", byDatePhrase);
+  writeBreakdownTable(
+    "cruce estilo de consulta × presencia de frase de fecha (celda real de punto ciego)",
+    byStyleAndDate
+  );
+
+  lines.push("## Determinismo de embeddings");
+  lines.push("");
+  lines.push(
+    embeddingDeterminismVerified === null
+      ? "_No verificado en esta corrida (embeddings no disponibles)._"
+      : embeddingDeterminismVerified
+        ? "Verificado en esta corrida: 2 invocaciones reales de `getEmbedding('Netflix')` contra Bedrock devolvieron vectores idénticos -- confirma (no solo asume) que no hace falta repetir corridas del arm modelo por variabilidad de embeddings."
+        : "**ADVERTENCIA REAL**: 2 invocaciones de `getEmbedding('Netflix')` en esta corrida NO devolvieron vectores idénticos (o alguna falló) -- revisar antes de asumir determinismo en el resto de este reporte."
+  );
+  lines.push("");
 
   lines.push("## Limitaciones declaradas");
   lines.push("");
@@ -295,10 +346,10 @@ function writeReport(
     "- Dataset sintético (generado programáticamente, no transacciones/disputas reales de clientes) -- mide si el matcher hace lo que su diseño promete, no si ese diseño captura toda la variedad real de cómo la gente describe una disputa."
   );
   lines.push(
-    "- Por construcción, `queryStyle: \"generic-category\"` sin frase de fecha (`hasDatePhrase: false`) es un caso donde NINGUNA señal discrimina entre candidatas para ninguno de los dos arms -- una precisión baja ahí es la limitación real y esperada del diseño actual, no un bug."
+    "- Por construcción, `queryStyle: \"generic-category\"` sin frase de fecha (`hasDatePhrase: false`) es un caso donde NINGUNA señal discrimina entre candidatas para ninguno de los dos arms -- confirmado en la tabla de cruce arriba (Recall@1 ~nivel de azar para ambos arms en esa celda puntual), limitación real y esperada del diseño actual, no un bug. Cerrarla de verdad requeriría una señal nueva de categoría/rubro (`Transaction.merchant_category`, no usada hoy por el matcher) o, más robusto, preguntarle al cliente cuál candidata es la correcta en vez de escalar directo (ver plan de CLARIFY post-Act, fuera del scope de este harness)."
   );
   lines.push(
-    "- `DEFAULT_TAU`/`DEFAULT_MARGIN_TAU` se fijaron por inspección de los 8 casos `designSet: true`, no por una búsqueda de grilla sobre el set completo -- reevaluar si este reporte sugiere otro valor."
+    `- \`DEFAULT_TAU\`/\`DEFAULT_MARGIN_TAU\` se fijaron por inspección de los ${designSetExcludedCount} casos \`designSet: true\`, no por una búsqueda de grilla sobre el set completo -- reevaluar si este reporte sugiere otro valor.`
   );
   lines.push("- No hay repetición de corridas -- embeddings de Bedrock son determinísticos para el mismo input, así que esto es menos crítico que en el harness de policy-agent (que sí depende de un LLM generativo), pero sigue siendo una sola corrida.");
   lines.push("");

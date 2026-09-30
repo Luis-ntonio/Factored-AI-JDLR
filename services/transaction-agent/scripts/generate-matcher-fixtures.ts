@@ -6,9 +6,11 @@ import { resolveRelativeDate } from "../src/matching/resolve-relative-date";
 
 /**
  * Genera el dataset SINTÉTICO de evaluación del matcher de transacciones
- * disputadas (`src/matching/transaction-matcher.ts`) -- ~24 clientes
+ * disputadas (`src/matching/transaction-matcher.ts`) -- 40 clientes
  * sintéticos (NUNCA los 4 de `mock-core-banking.ts`, que son el mock chico
- * de demo, no el dataset de evaluación), 2 casos de disputa cada uno.
+ * de demo, no el dataset de evaluación), 2 casos de disputa cada uno (80
+ * casos totales -- subido de 24/48 porque las celdas más finas del reporte
+ * tenían muy pocos casos para que un desglose fuera confiable).
  *
  * Seed determinístico (PRNG `mulberry32`, sin `Math.random()`) -- la salida
  * se commitea a `eval-fixtures/matcher-cases.json` y NUNCA se regenera en
@@ -41,10 +43,17 @@ import { resolveRelativeDate } from "../src/matching/resolve-relative-date";
  * estilo "generic-category" (limitación real y esperada, reportada tal
  * cual, no ocultada).
  *
- * `designSet: true` en los primeros 4 clientes (8 casos): fueron los casos
- * inspeccionados a mano para fijar `DEFAULT_TAU`/`DEFAULT_MARGIN_TAU` en
- * `transaction-matcher.ts` -- excluidos del reporte final (mismo patrón
- * que `services/policy-agent/scripts/evaluate-decide-stage.ts`).
+ * Dos ejes adicionales (mejora de dataset, misma sesión que subió
+ * NUM_CUSTOMERS): ~30% de los casos con frase de fecha ubican los decoys
+ * "casi dentro" de la ventana resuelta en vez de siempre muy lejos (prueba
+ * el borde real de `rangeAround()`); ~30% de los casos el monto de la
+ * consulta es una aproximación ±1-3% del monto real compartido (el
+ * cliente "recuerda como 220 pesos"), nunca siempre exacto.
+ *
+ * `designSet: true` en los primeros 6 clientes (12 casos): fueron los
+ * casos inspeccionados a mano para fijar `DEFAULT_TAU`/`DEFAULT_MARGIN_TAU`
+ * en `transaction-matcher.ts` -- excluidos del reporte final (mismo
+ * patrón que `services/policy-agent/scripts/evaluate-decide-stage.ts`).
  */
 
 interface MatcherFixtureQuery {
@@ -74,8 +83,12 @@ export interface MatcherFixtureCase {
 // criterio que `FIXTURES_PATH` en `evaluate-transaction-matcher.ts`.
 const OUTPUT_PATH = path.resolve(process.cwd(), "scripts/eval-fixtures/matcher-cases.json");
 const REFERENCE_DATE_ISO = "2026-09-29T12:00:00Z";
-const NUM_CUSTOMERS = 24;
-const DESIGN_SET_CUSTOMER_COUNT = 4;
+// 40 clientes (subido de 24) -- las celdas más finas del reporte
+// (3-plus-candidates, sin frase de fecha) tenían solo 6-20 casos, donde un
+// solo caso movía el porcentaje varios puntos. Con 40 clientes (80 casos)
+// esas celdas tienen más soporte real.
+const NUM_CUSTOMERS = 40;
+const DESIGN_SET_CUSTOMER_COUNT = 6;
 
 // --- PRNG determinístico (mulberry32) -- nunca Math.random() -------------
 function mulberry32(seed: number): () => number {
@@ -143,12 +156,27 @@ const DATE_PHRASES: DatePhraseSpec[] = [
   { es: "anteayer", pt: "anteontem" },
   { es: "la semana pasada", pt: "semana passada" },
   { es: "el mes pasado", pt: "mês passado" },
+  // Agregado (mejora de dataset): día de la semana con
+  // mostRecentPastWeekday(), antes solo se ejercitaban los 4 patrones de
+  // offset fijo de arriba. REFERENCE_DATE_ISO es 2026-09-29 (martes) -- "el
+  // lunes pasado"/"na segunda-feira" resuelve al lunes de esta semana
+  // (2026-09-28), ver resolveRelativeDate.
+  { es: "el lunes pasado", pt: "na segunda-feira" },
 ];
 
 // Offset fijo y grande para fechas "decoy" -- verificado por inspección que
-// cae fuera de las 4 ventanas de arriba (la más ancha, "el mes pasado", es
-// como mucho ref-45..ref-15): ref-90 siempre queda afuera.
+// cae fuera de las 4 ventanas de offset fijo de arriba (la más ancha, "el
+// mes pasado", es como mucho ref-45..ref-15): ref-90 siempre queda afuera.
+// Usado para la mayoría de los decoys ("lejos, caso fácil").
 const DECOY_OFFSET_DAYS = -90;
+
+// Fracción de casos donde el/los decoy(s) se ubican "casi dentro" de la
+// ventana resuelta (mejora de dataset) en vez de siempre muy lejos --
+// prueba la precisión real del borde de rangeAround() (resolve-relative-
+// date.ts), no solo el caso fácil. Offset chico, por fuera del borde
+// superior de la ventana más angosta (un solo día, ej. "ayer"/"el lunes
+// pasado") pero cerca.
+const NEAR_MISS_DECOY_DAYS_PAST_WINDOW = 5;
 
 const COUNTRIES: Country[] = ["Mexico", "Colombia", "Argentina"];
 const CURRENCY_BY_COUNTRY: Record<Country, Currency> = { Mexico: "MXN", Colombia: "COP", Argentina: "ARS" };
@@ -201,6 +229,12 @@ function buildTransaction(params: {
   };
 }
 
+function addDaysToDateOnly(dateOnly: string, days: number): string {
+  const d = new Date(`${dateOnly}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
 function buildCase(params: {
   idSuffix: string;
   customerId: string;
@@ -221,6 +255,7 @@ function buildCase(params: {
 
   let targetDateIso: string;
   let datePhraseText: string | null = null;
+  let resolvedWindowTo: string | null = null;
   let targetIdx = randInt(0, candidateCount - 1);
 
   if (hasDatePhrase) {
@@ -231,6 +266,7 @@ function buildCase(params: {
       throw new Error(`resolveRelativeDate no reconoció una frase propia del generador: "${datePhraseText}" (${language})`);
     }
     targetDateIso = randomDateWithinRange(range.from, range.to);
+    resolvedWindowTo = range.to;
   } else {
     // Sin frase de fecha: el target no tiene ninguna fecha "especial" --
     // se le asigna una fecha reciente arbitraria, igual que a los decoys
@@ -238,10 +274,35 @@ function buildCase(params: {
     targetDateIso = isoDateDaysFrom(REFERENCE_DATE_ISO, -randInt(1, 40));
   }
 
+  // Mejora de dataset: ~30% de los casos CON frase de fecha ubican los
+  // decoys "casi dentro" de la ventana resuelta (unos días después del
+  // borde superior) en vez de siempre muy lejos (DECOY_OFFSET_DAYS) --
+  // prueba la precisión real del límite de rangeAround(), no solo el caso
+  // fácil de "claramente afuera".
+  const useNearMissDecoys = resolvedWindowTo !== null && rng() < 0.3;
+
   const candidates: Transaction[] = [];
   let targetTransactionId = "";
   for (let i = 0; i < candidateCount; i++) {
-    const dateIso = i === targetIdx ? targetDateIso : isoDateDaysFrom(REFERENCE_DATE_ISO, DECOY_OFFSET_DAYS - i * 3);
+    let dateIso: string;
+    if (i === targetIdx) {
+      dateIso = targetDateIso;
+    } else if (useNearMissDecoys && resolvedWindowTo) {
+      const decoyDateOnly = addDaysToDateOnly(resolvedWindowTo, NEAR_MISS_DECOY_DAYS_PAST_WINDOW + i);
+      // Salvaguarda: si la ventana resuelta está muy cerca de la fecha de
+      // referencia (ej. "ayer"), el decoy "casi dentro" podría caer en el
+      // futuro respecto a REFERENCE_DATE_ISO -- una transacción sintética
+      // nunca debe fecharse después de "ahora". Si eso pasaría, se usa el
+      // decoy lejano estándar para ESTE candidato puntual en vez de forzar
+      // una fecha futura.
+      const referenceDateOnly = REFERENCE_DATE_ISO.slice(0, 10);
+      dateIso =
+        decoyDateOnly <= referenceDateOnly
+          ? `${decoyDateOnly}T12:00:00Z`
+          : isoDateDaysFrom(REFERENCE_DATE_ISO, DECOY_OFFSET_DAYS - i * 3);
+    } else {
+      dateIso = isoDateDaysFrom(REFERENCE_DATE_ISO, DECOY_OFFSET_DAYS - i * 3);
+    }
     const txn = buildTransaction({
       customerId,
       merchantName: merchantsForCase[i],
@@ -257,6 +318,16 @@ function buildCase(params: {
   const queryMerchant =
     queryStyle === "exact-merchant" ? merchantsForCase[targetIdx] : group.genericPhrase[language];
 
+  // Mejora de dataset: ~30% de los casos el cliente "recuerda
+  // aproximadamente" el monto (±1-3%) en vez del monto exacto -- las
+  // candidatas siguen con el monto REAL (sharedAmount); solo la consulta
+  // se perturba. Ejercita amountWithinTolerance (baseline)/la proximidad
+  // continua (modelo) contra el caso real de "como 220 pesos".
+  const approximateAmount = rng() < 0.3;
+  const disputedAmount = approximateAmount
+    ? Math.round(sharedAmount * (1 + (rng() < 0.5 ? -1 : 1) * (0.01 + rng() * 0.02)) * 100) / 100
+    : sharedAmount;
+
   return {
     id: `matcher-${idSuffix}`,
     customerId,
@@ -267,7 +338,7 @@ function buildCase(params: {
     designSet,
     query: {
       merchant: queryMerchant,
-      disputedAmount: sharedAmount,
+      disputedAmount,
       transactionDateText: datePhraseText,
       referenceDateIso: REFERENCE_DATE_ISO,
       language,

@@ -1,115 +1,23 @@
 [
   {
-    "id": "matcher-SYN-CUST-005-a",
-    "customerId": "SYN-CUST-005",
-    "language": "pt",
-    "ambiguityLevel": "2-candidates",
-    "queryStyle": "exact-merchant",
-    "hasDatePhrase": true,
-    "targetTransactionId": "SYN-TXN-00022",
-    "baseline": {
-      "rankOfTarget": 1,
-      "confident": true,
-      "topTransactionId": "SYN-TXN-00022",
-      "topCorrect": true,
-      "confidentAndCorrect": true
-    },
-    "model": {
-      "rankOfTarget": 1,
-      "confident": true,
-      "topTransactionId": "SYN-TXN-00022",
-      "topCorrect": true,
-      "confidentAndCorrect": true
-    }
-  },
-  {
-    "id": "matcher-SYN-CUST-005-b",
-    "customerId": "SYN-CUST-005",
-    "language": "pt",
-    "ambiguityLevel": "3-plus-candidates",
-    "queryStyle": "generic-category",
-    "hasDatePhrase": true,
-    "targetTransactionId": "SYN-TXN-00025",
-    "baseline": {
-      "rankOfTarget": 3,
-      "confident": false,
-      "topTransactionId": "SYN-TXN-00023",
-      "topCorrect": false,
-      "confidentAndCorrect": false
-    },
-    "model": {
-      "rankOfTarget": 1,
-      "confident": true,
-      "topTransactionId": "SYN-TXN-00025",
-      "topCorrect": true,
-      "confidentAndCorrect": true
-    }
-  },
-  {
-    "id": "matcher-SYN-CUST-006-a",
-    "customerId": "SYN-CUST-006",
-    "language": "es",
-    "ambiguityLevel": "2-candidates",
-    "queryStyle": "generic-category",
-    "hasDatePhrase": true,
-    "targetTransactionId": "SYN-TXN-00027",
-    "baseline": {
-      "rankOfTarget": 2,
-      "confident": false,
-      "topTransactionId": "SYN-TXN-00026",
-      "topCorrect": false,
-      "confidentAndCorrect": false
-    },
-    "model": {
-      "rankOfTarget": 1,
-      "confident": false,
-      "topTransactionId": "SYN-TXN-00027",
-      "topCorrect": true,
-      "confidentAndCorrect": false
-    }
-  },
-  {
-    "id": "matcher-SYN-CUST-006-b",
-    "customerId": "SYN-CUST-006",
-    "language": "es",
-    "ambiguityLevel": "3-plus-candidates",
-    "queryStyle": "exact-merchant",
-    "hasDatePhrase": true,
-    "targetTransactionId": "SYN-TXN-00029",
-    "baseline": {
-      "rankOfTarget": 1,
-      "confident": true,
-      "topTransactionId": "SYN-TXN-00029",
-      "topCorrect": true,
-      "confidentAndCorrect": true
-    },
-    "model": {
-      "rankOfTarget": 1,
-      "confident": true,
-      "topTransactionId": "SYN-TXN-00029",
-      "topCorrect": true,
-      "confidentAndCorrect": true
-    }
-  },
-  {
     "id": "matcher-SYN-CUST-007-a",
     "customerId": "SYN-CUST-007",
     "language": "es",
     "ambiguityLevel": "2-candidates",
     "queryStyle": "exact-merchant",
     "hasDatePhrase": true,
-    "targetTransactionId": "SYN-TXN-00032",
+    "targetTransactionId": "SYN-TXN-00031",
     "baseline": {
       "rankOfTarget": 1,
       "confident": true,
-      "topTransactionId": "SYN-TXN-00032",
+      "topTransactionId": "SYN-TXN-00031",
       "topCorrect": true,
       "confidentAndCorrect": true
     },
     "model": {
       "rankOfTarget": 1,
       "confident": true,
-      "topTransactionId": "SYN-TXN-00032",
+      "topTransactionId": "SYN-TXN-00031",
       "topCorrect": true,
       "confidentAndCorrect": true
     }
@@ -121,18 +29,18 @@
     "ambiguityLevel": "3-plus-candidates",
     "queryStyle": "generic-category",
     "hasDatePhrase": false,
-    "targetTransactionId": "SYN-TXN-00034",
+    "targetTransactionId": "SYN-TXN-00035",
     "baseline": {
-      "rankOfTarget": 2,
+      "rankOfTarget": 3,
       "confident": false,
       "topTransactionId": "SYN-TXN-00033",
       "topCorrect": false,
       "confidentAndCorrect": false
     },
     "model": {
-      "rankOfTarget": 2,
+      "rankOfTarget": 3,
       "confident": false,
-      "topTransactionId": "SYN-TXN-00035",
+      "topTransactionId": "SYN-TXN-00033",
       "topCorrect": false,
       "confidentAndCorrect": false
     }
@@ -144,20 +52,20 @@
     "ambiguityLevel": "2-candidates",
     "queryStyle": "generic-category",
     "hasDatePhrase": true,
-    "targetTransactionId": "SYN-TXN-00036",
+    "targetTransactionId": "SYN-TXN-00037",
     "baseline": {
-      "rankOfTarget": 1,
+      "rankOfTarget": 2,
       "confident": false,
       "topTransactionId": "SYN-TXN-00036",
-      "topCorrect": true,
+      "topCorrect": false,
       "confidentAndCorrect": false
     },
     "model": {
       "rankOfTarget": 1,
-      "confident": true,
-      "topTransactionId": "SYN-TXN-00036",
+      "confident": false,
+      "topTransactionId": "SYN-TXN-00037",
       "topCorrect": true,
-      "confidentAndCorrect": true
+      "confidentAndCorrect": false
     }
   },
   {
@@ -213,18 +121,18 @@
     "ambiguityLevel": "3-plus-candidates",
     "queryStyle": "generic-category",
     "hasDatePhrase": true,
-    "targetTransactionId": "SYN-TXN-00045",
+    "targetTransactionId": "SYN-TXN-00043",
     "baseline": {
-      "rankOfTarget": 3,
+      "rankOfTarget": 1,
       "confident": false,
       "topTransactionId": "SYN-TXN-00043",
-      "topCorrect": false,
+      "topCorrect": true,
       "confidentAndCorrect": false
     },
     "model": {
       "rankOfTarget": 1,
       "confident": false,
-      "topTransactionId": "SYN-TXN-00045",
+      "topTransactionId": "SYN-TXN-00043",
       "topCorrect": true,
       "confidentAndCorrect": false
     }
@@ -246,10 +154,10 @@
     },
     "model": {
       "rankOfTarget": 1,
-      "confident": true,
+      "confident": false,
       "topTransactionId": "SYN-TXN-00047",
       "topCorrect": true,
-      "confidentAndCorrect": true
+      "confidentAndCorrect": false
     }
   },
   {
@@ -305,18 +213,18 @@
     "ambiguityLevel": "3-plus-candidates",
     "queryStyle": "generic-category",
     "hasDatePhrase": true,
-    "targetTransactionId": "SYN-TXN-00053",
+    "targetTransactionId": "SYN-TXN-00055",
     "baseline": {
-      "rankOfTarget": 1,
+      "rankOfTarget": 3,
       "confident": false,
       "topTransactionId": "SYN-TXN-00053",
-      "topCorrect": true,
+      "topCorrect": false,
       "confidentAndCorrect": false
     },
     "model": {
       "rankOfTarget": 1,
       "confident": false,
-      "topTransactionId": "SYN-TXN-00053",
+      "topTransactionId": "SYN-TXN-00055",
       "topCorrect": true,
       "confidentAndCorrect": false
     }
@@ -351,18 +259,18 @@
     "ambiguityLevel": "3-plus-candidates",
     "queryStyle": "exact-merchant",
     "hasDatePhrase": true,
-    "targetTransactionId": "SYN-TXN-00058",
+    "targetTransactionId": "SYN-TXN-00060",
     "baseline": {
       "rankOfTarget": 1,
       "confident": true,
-      "topTransactionId": "SYN-TXN-00058",
+      "topTransactionId": "SYN-TXN-00060",
       "topCorrect": true,
       "confidentAndCorrect": true
     },
     "model": {
       "rankOfTarget": 1,
       "confident": true,
-      "topTransactionId": "SYN-TXN-00058",
+      "topTransactionId": "SYN-TXN-00060",
       "topCorrect": true,
       "confidentAndCorrect": true
     }
@@ -420,20 +328,20 @@
     "ambiguityLevel": "2-candidates",
     "queryStyle": "generic-category",
     "hasDatePhrase": true,
-    "targetTransactionId": "SYN-TXN-00066",
+    "targetTransactionId": "SYN-TXN-00067",
     "baseline": {
-      "rankOfTarget": 1,
+      "rankOfTarget": 2,
       "confident": false,
       "topTransactionId": "SYN-TXN-00066",
-      "topCorrect": true,
+      "topCorrect": false,
       "confidentAndCorrect": false
     },
     "model": {
       "rankOfTarget": 1,
-      "confident": true,
-      "topTransactionId": "SYN-TXN-00066",
+      "confident": false,
+      "topTransactionId": "SYN-TXN-00067",
       "topCorrect": true,
-      "confidentAndCorrect": true
+      "confidentAndCorrect": false
     }
   },
   {
@@ -489,9 +397,9 @@
     "ambiguityLevel": "3-plus-candidates",
     "queryStyle": "generic-category",
     "hasDatePhrase": true,
-    "targetTransactionId": "SYN-TXN-00074",
+    "targetTransactionId": "SYN-TXN-00075",
     "baseline": {
-      "rankOfTarget": 2,
+      "rankOfTarget": 3,
       "confident": false,
       "topTransactionId": "SYN-TXN-00073",
       "topCorrect": false,
@@ -499,10 +407,10 @@
     },
     "model": {
       "rankOfTarget": 1,
-      "confident": true,
-      "topTransactionId": "SYN-TXN-00074",
+      "confident": false,
+      "topTransactionId": "SYN-TXN-00075",
       "topCorrect": true,
-      "confidentAndCorrect": true
+      "confidentAndCorrect": false
     }
   },
   {
@@ -512,18 +420,18 @@
     "ambiguityLevel": "2-candidates",
     "queryStyle": "generic-category",
     "hasDatePhrase": true,
-    "targetTransactionId": "SYN-TXN-00076",
+    "targetTransactionId": "SYN-TXN-00077",
     "baseline": {
-      "rankOfTarget": 1,
+      "rankOfTarget": 2,
       "confident": false,
       "topTransactionId": "SYN-TXN-00076",
-      "topCorrect": true,
+      "topCorrect": false,
       "confidentAndCorrect": false
     },
     "model": {
       "rankOfTarget": 1,
       "confident": false,
-      "topTransactionId": "SYN-TXN-00076",
+      "topTransactionId": "SYN-TXN-00077",
       "topCorrect": true,
       "confidentAndCorrect": false
     }
@@ -535,18 +443,18 @@
     "ambiguityLevel": "3-plus-candidates",
     "queryStyle": "exact-merchant",
     "hasDatePhrase": false,
-    "targetTransactionId": "SYN-TXN-00078",
+    "targetTransactionId": "SYN-TXN-00080",
     "baseline": {
       "rankOfTarget": 1,
       "confident": true,
-      "topTransactionId": "SYN-TXN-00078",
+      "topTransactionId": "SYN-TXN-00080",
       "topCorrect": true,
       "confidentAndCorrect": true
     },
     "model": {
       "rankOfTarget": 1,
       "confident": true,
-      "topTransactionId": "SYN-TXN-00078",
+      "topTransactionId": "SYN-TXN-00080",
       "topCorrect": true,
       "confidentAndCorrect": true
     }
@@ -650,18 +558,18 @@
     "ambiguityLevel": "2-candidates",
     "queryStyle": "exact-merchant",
     "hasDatePhrase": true,
-    "targetTransactionId": "SYN-TXN-00092",
+    "targetTransactionId": "SYN-TXN-00091",
     "baseline": {
       "rankOfTarget": 1,
       "confident": true,
-      "topTransactionId": "SYN-TXN-00092",
+      "topTransactionId": "SYN-TXN-00091",
       "topCorrect": true,
       "confidentAndCorrect": true
     },
     "model": {
       "rankOfTarget": 1,
       "confident": true,
-      "topTransactionId": "SYN-TXN-00092",
+      "topTransactionId": "SYN-TXN-00091",
       "topCorrect": true,
       "confidentAndCorrect": true
     }
@@ -673,19 +581,19 @@
     "ambiguityLevel": "3-plus-candidates",
     "queryStyle": "generic-category",
     "hasDatePhrase": false,
-    "targetTransactionId": "SYN-TXN-00093",
+    "targetTransactionId": "SYN-TXN-00095",
     "baseline": {
-      "rankOfTarget": 1,
+      "rankOfTarget": 3,
       "confident": false,
       "topTransactionId": "SYN-TXN-00093",
-      "topCorrect": true,
+      "topCorrect": false,
       "confidentAndCorrect": false
     },
     "model": {
-      "rankOfTarget": 1,
+      "rankOfTarget": 2,
       "confident": false,
       "topTransactionId": "SYN-TXN-00093",
-      "topCorrect": true,
+      "topCorrect": false,
       "confidentAndCorrect": false
     }
   },
@@ -706,10 +614,10 @@
     },
     "model": {
       "rankOfTarget": 1,
-      "confident": false,
+      "confident": true,
       "topTransactionId": "SYN-TXN-00097",
       "topCorrect": true,
-      "confidentAndCorrect": false
+      "confidentAndCorrect": true
     }
   },
   {
@@ -742,18 +650,18 @@
     "ambiguityLevel": "2-candidates",
     "queryStyle": "exact-merchant",
     "hasDatePhrase": true,
-    "targetTransactionId": "SYN-TXN-00101",
+    "targetTransactionId": "SYN-TXN-00102",
     "baseline": {
       "rankOfTarget": 1,
       "confident": true,
-      "topTransactionId": "SYN-TXN-00101",
+      "topTransactionId": "SYN-TXN-00102",
       "topCorrect": true,
       "confidentAndCorrect": true
     },
     "model": {
       "rankOfTarget": 1,
       "confident": true,
-      "topTransactionId": "SYN-TXN-00101",
+      "topTransactionId": "SYN-TXN-00102",
       "topCorrect": true,
       "confidentAndCorrect": true
     }
@@ -765,9 +673,9 @@
     "ambiguityLevel": "3-plus-candidates",
     "queryStyle": "generic-category",
     "hasDatePhrase": true,
-    "targetTransactionId": "SYN-TXN-00105",
+    "targetTransactionId": "SYN-TXN-00104",
     "baseline": {
-      "rankOfTarget": 3,
+      "rankOfTarget": 2,
       "confident": false,
       "topTransactionId": "SYN-TXN-00103",
       "topCorrect": false,
@@ -776,7 +684,7 @@
     "model": {
       "rankOfTarget": 1,
       "confident": false,
-      "topTransactionId": "SYN-TXN-00105",
+      "topTransactionId": "SYN-TXN-00104",
       "topCorrect": true,
       "confidentAndCorrect": false
     }
@@ -788,20 +696,20 @@
     "ambiguityLevel": "2-candidates",
     "queryStyle": "generic-category",
     "hasDatePhrase": true,
-    "targetTransactionId": "SYN-TXN-00106",
+    "targetTransactionId": "SYN-TXN-00107",
     "baseline": {
-      "rankOfTarget": 1,
+      "rankOfTarget": 2,
       "confident": false,
       "topTransactionId": "SYN-TXN-00106",
-      "topCorrect": true,
+      "topCorrect": false,
       "confidentAndCorrect": false
     },
     "model": {
       "rankOfTarget": 1,
-      "confident": false,
-      "topTransactionId": "SYN-TXN-00106",
+      "confident": true,
+      "topTransactionId": "SYN-TXN-00107",
       "topCorrect": true,
-      "confidentAndCorrect": false
+      "confidentAndCorrect": true
     }
   },
   {
@@ -811,18 +719,18 @@
     "ambiguityLevel": "3-plus-candidates",
     "queryStyle": "exact-merchant",
     "hasDatePhrase": false,
-    "targetTransactionId": "SYN-TXN-00109",
+    "targetTransactionId": "SYN-TXN-00108",
     "baseline": {
       "rankOfTarget": 1,
       "confident": true,
-      "topTransactionId": "SYN-TXN-00109",
+      "topTransactionId": "SYN-TXN-00108",
       "topCorrect": true,
       "confidentAndCorrect": true
     },
     "model": {
       "rankOfTarget": 1,
       "confident": true,
-      "topTransactionId": "SYN-TXN-00109",
+      "topTransactionId": "SYN-TXN-00108",
       "topCorrect": true,
       "confidentAndCorrect": true
     }
@@ -834,18 +742,18 @@
     "ambiguityLevel": "2-candidates",
     "queryStyle": "exact-merchant",
     "hasDatePhrase": true,
-    "targetTransactionId": "SYN-TXN-00112",
+    "targetTransactionId": "SYN-TXN-00111",
     "baseline": {
       "rankOfTarget": 1,
       "confident": true,
-      "topTransactionId": "SYN-TXN-00112",
+      "topTransactionId": "SYN-TXN-00111",
       "topCorrect": true,
       "confidentAndCorrect": true
     },
     "model": {
       "rankOfTarget": 1,
       "confident": true,
-      "topTransactionId": "SYN-TXN-00112",
+      "topTransactionId": "SYN-TXN-00111",
       "topCorrect": true,
       "confidentAndCorrect": true
     }
@@ -857,18 +765,18 @@
     "ambiguityLevel": "3-plus-candidates",
     "queryStyle": "generic-category",
     "hasDatePhrase": true,
-    "targetTransactionId": "SYN-TXN-00115",
+    "targetTransactionId": "SYN-TXN-00113",
     "baseline": {
-      "rankOfTarget": 3,
+      "rankOfTarget": 1,
       "confident": false,
       "topTransactionId": "SYN-TXN-00113",
-      "topCorrect": false,
+      "topCorrect": true,
       "confidentAndCorrect": false
     },
     "model": {
       "rankOfTarget": 1,
       "confident": false,
-      "topTransactionId": "SYN-TXN-00115",
+      "topTransactionId": "SYN-TXN-00113",
       "topCorrect": true,
       "confidentAndCorrect": false
     }
@@ -890,10 +798,10 @@
     },
     "model": {
       "rankOfTarget": 1,
-      "confident": false,
+      "confident": true,
       "topTransactionId": "SYN-TXN-00116",
       "topCorrect": true,
-      "confidentAndCorrect": false
+      "confidentAndCorrect": true
     }
   },
   {
@@ -903,18 +811,754 @@
     "ambiguityLevel": "3-plus-candidates",
     "queryStyle": "exact-merchant",
     "hasDatePhrase": true,
-    "targetTransactionId": "SYN-TXN-00118",
+    "targetTransactionId": "SYN-TXN-00119",
     "baseline": {
       "rankOfTarget": 1,
       "confident": true,
-      "topTransactionId": "SYN-TXN-00118",
+      "topTransactionId": "SYN-TXN-00119",
       "topCorrect": true,
       "confidentAndCorrect": true
     },
     "model": {
       "rankOfTarget": 1,
       "confident": true,
-      "topTransactionId": "SYN-TXN-00118",
+      "topTransactionId": "SYN-TXN-00119",
+      "topCorrect": true,
+      "confidentAndCorrect": true
+    }
+  },
+  {
+    "id": "matcher-SYN-CUST-025-a",
+    "customerId": "SYN-CUST-025",
+    "language": "pt",
+    "ambiguityLevel": "2-candidates",
+    "queryStyle": "exact-merchant",
+    "hasDatePhrase": true,
+    "targetTransactionId": "SYN-TXN-00122",
+    "baseline": {
+      "rankOfTarget": 1,
+      "confident": true,
+      "topTransactionId": "SYN-TXN-00122",
+      "topCorrect": true,
+      "confidentAndCorrect": true
+    },
+    "model": {
+      "rankOfTarget": 1,
+      "confident": true,
+      "topTransactionId": "SYN-TXN-00122",
+      "topCorrect": true,
+      "confidentAndCorrect": true
+    }
+  },
+  {
+    "id": "matcher-SYN-CUST-025-b",
+    "customerId": "SYN-CUST-025",
+    "language": "pt",
+    "ambiguityLevel": "3-plus-candidates",
+    "queryStyle": "generic-category",
+    "hasDatePhrase": false,
+    "targetTransactionId": "SYN-TXN-00125",
+    "baseline": {
+      "rankOfTarget": 3,
+      "confident": false,
+      "topTransactionId": "SYN-TXN-00123",
+      "topCorrect": false,
+      "confidentAndCorrect": false
+    },
+    "model": {
+      "rankOfTarget": 3,
+      "confident": false,
+      "topTransactionId": "SYN-TXN-00123",
+      "topCorrect": false,
+      "confidentAndCorrect": false
+    }
+  },
+  {
+    "id": "matcher-SYN-CUST-026-a",
+    "customerId": "SYN-CUST-026",
+    "language": "es",
+    "ambiguityLevel": "2-candidates",
+    "queryStyle": "generic-category",
+    "hasDatePhrase": true,
+    "targetTransactionId": "SYN-TXN-00126",
+    "baseline": {
+      "rankOfTarget": 1,
+      "confident": false,
+      "topTransactionId": "SYN-TXN-00126",
+      "topCorrect": true,
+      "confidentAndCorrect": false
+    },
+    "model": {
+      "rankOfTarget": 1,
+      "confident": false,
+      "topTransactionId": "SYN-TXN-00126",
+      "topCorrect": true,
+      "confidentAndCorrect": false
+    }
+  },
+  {
+    "id": "matcher-SYN-CUST-026-b",
+    "customerId": "SYN-CUST-026",
+    "language": "es",
+    "ambiguityLevel": "3-plus-candidates",
+    "queryStyle": "exact-merchant",
+    "hasDatePhrase": true,
+    "targetTransactionId": "SYN-TXN-00128",
+    "baseline": {
+      "rankOfTarget": 1,
+      "confident": true,
+      "topTransactionId": "SYN-TXN-00128",
+      "topCorrect": true,
+      "confidentAndCorrect": true
+    },
+    "model": {
+      "rankOfTarget": 1,
+      "confident": true,
+      "topTransactionId": "SYN-TXN-00128",
+      "topCorrect": true,
+      "confidentAndCorrect": true
+    }
+  },
+  {
+    "id": "matcher-SYN-CUST-027-a",
+    "customerId": "SYN-CUST-027",
+    "language": "es",
+    "ambiguityLevel": "2-candidates",
+    "queryStyle": "exact-merchant",
+    "hasDatePhrase": true,
+    "targetTransactionId": "SYN-TXN-00131",
+    "baseline": {
+      "rankOfTarget": 1,
+      "confident": true,
+      "topTransactionId": "SYN-TXN-00131",
+      "topCorrect": true,
+      "confidentAndCorrect": true
+    },
+    "model": {
+      "rankOfTarget": 1,
+      "confident": true,
+      "topTransactionId": "SYN-TXN-00131",
+      "topCorrect": true,
+      "confidentAndCorrect": true
+    }
+  },
+  {
+    "id": "matcher-SYN-CUST-027-b",
+    "customerId": "SYN-CUST-027",
+    "language": "es",
+    "ambiguityLevel": "3-plus-candidates",
+    "queryStyle": "generic-category",
+    "hasDatePhrase": true,
+    "targetTransactionId": "SYN-TXN-00133",
+    "baseline": {
+      "rankOfTarget": 1,
+      "confident": false,
+      "topTransactionId": "SYN-TXN-00133",
+      "topCorrect": true,
+      "confidentAndCorrect": false
+    },
+    "model": {
+      "rankOfTarget": 1,
+      "confident": false,
+      "topTransactionId": "SYN-TXN-00133",
+      "topCorrect": true,
+      "confidentAndCorrect": false
+    }
+  },
+  {
+    "id": "matcher-SYN-CUST-028-a",
+    "customerId": "SYN-CUST-028",
+    "language": "es",
+    "ambiguityLevel": "2-candidates",
+    "queryStyle": "generic-category",
+    "hasDatePhrase": true,
+    "targetTransactionId": "SYN-TXN-00136",
+    "baseline": {
+      "rankOfTarget": 1,
+      "confident": false,
+      "topTransactionId": "SYN-TXN-00136",
+      "topCorrect": true,
+      "confidentAndCorrect": false
+    },
+    "model": {
+      "rankOfTarget": 1,
+      "confident": false,
+      "topTransactionId": "SYN-TXN-00136",
+      "topCorrect": true,
+      "confidentAndCorrect": false
+    }
+  },
+  {
+    "id": "matcher-SYN-CUST-028-b",
+    "customerId": "SYN-CUST-028",
+    "language": "es",
+    "ambiguityLevel": "3-plus-candidates",
+    "queryStyle": "exact-merchant",
+    "hasDatePhrase": false,
+    "targetTransactionId": "SYN-TXN-00138",
+    "baseline": {
+      "rankOfTarget": 1,
+      "confident": true,
+      "topTransactionId": "SYN-TXN-00138",
+      "topCorrect": true,
+      "confidentAndCorrect": true
+    },
+    "model": {
+      "rankOfTarget": 1,
+      "confident": true,
+      "topTransactionId": "SYN-TXN-00138",
+      "topCorrect": true,
+      "confidentAndCorrect": true
+    }
+  },
+  {
+    "id": "matcher-SYN-CUST-029-a",
+    "customerId": "SYN-CUST-029",
+    "language": "pt",
+    "ambiguityLevel": "2-candidates",
+    "queryStyle": "exact-merchant",
+    "hasDatePhrase": true,
+    "targetTransactionId": "SYN-TXN-00142",
+    "baseline": {
+      "rankOfTarget": 1,
+      "confident": true,
+      "topTransactionId": "SYN-TXN-00142",
+      "topCorrect": true,
+      "confidentAndCorrect": true
+    },
+    "model": {
+      "rankOfTarget": 1,
+      "confident": true,
+      "topTransactionId": "SYN-TXN-00142",
+      "topCorrect": true,
+      "confidentAndCorrect": true
+    }
+  },
+  {
+    "id": "matcher-SYN-CUST-029-b",
+    "customerId": "SYN-CUST-029",
+    "language": "pt",
+    "ambiguityLevel": "3-plus-candidates",
+    "queryStyle": "generic-category",
+    "hasDatePhrase": true,
+    "targetTransactionId": "SYN-TXN-00145",
+    "baseline": {
+      "rankOfTarget": 3,
+      "confident": false,
+      "topTransactionId": "SYN-TXN-00143",
+      "topCorrect": false,
+      "confidentAndCorrect": false
+    },
+    "model": {
+      "rankOfTarget": 1,
+      "confident": false,
+      "topTransactionId": "SYN-TXN-00145",
+      "topCorrect": true,
+      "confidentAndCorrect": false
+    }
+  },
+  {
+    "id": "matcher-SYN-CUST-030-a",
+    "customerId": "SYN-CUST-030",
+    "language": "es",
+    "ambiguityLevel": "2-candidates",
+    "queryStyle": "generic-category",
+    "hasDatePhrase": true,
+    "targetTransactionId": "SYN-TXN-00146",
+    "baseline": {
+      "rankOfTarget": 1,
+      "confident": false,
+      "topTransactionId": "SYN-TXN-00146",
+      "topCorrect": true,
+      "confidentAndCorrect": false
+    },
+    "model": {
+      "rankOfTarget": 1,
+      "confident": false,
+      "topTransactionId": "SYN-TXN-00146",
+      "topCorrect": true,
+      "confidentAndCorrect": false
+    }
+  },
+  {
+    "id": "matcher-SYN-CUST-030-b",
+    "customerId": "SYN-CUST-030",
+    "language": "es",
+    "ambiguityLevel": "3-plus-candidates",
+    "queryStyle": "exact-merchant",
+    "hasDatePhrase": true,
+    "targetTransactionId": "SYN-TXN-00150",
+    "baseline": {
+      "rankOfTarget": 1,
+      "confident": true,
+      "topTransactionId": "SYN-TXN-00150",
+      "topCorrect": true,
+      "confidentAndCorrect": true
+    },
+    "model": {
+      "rankOfTarget": 1,
+      "confident": true,
+      "topTransactionId": "SYN-TXN-00150",
+      "topCorrect": true,
+      "confidentAndCorrect": true
+    }
+  },
+  {
+    "id": "matcher-SYN-CUST-031-a",
+    "customerId": "SYN-CUST-031",
+    "language": "es",
+    "ambiguityLevel": "2-candidates",
+    "queryStyle": "exact-merchant",
+    "hasDatePhrase": true,
+    "targetTransactionId": "SYN-TXN-00151",
+    "baseline": {
+      "rankOfTarget": 1,
+      "confident": true,
+      "topTransactionId": "SYN-TXN-00151",
+      "topCorrect": true,
+      "confidentAndCorrect": true
+    },
+    "model": {
+      "rankOfTarget": 1,
+      "confident": true,
+      "topTransactionId": "SYN-TXN-00151",
+      "topCorrect": true,
+      "confidentAndCorrect": true
+    }
+  },
+  {
+    "id": "matcher-SYN-CUST-031-b",
+    "customerId": "SYN-CUST-031",
+    "language": "es",
+    "ambiguityLevel": "3-plus-candidates",
+    "queryStyle": "generic-category",
+    "hasDatePhrase": false,
+    "targetTransactionId": "SYN-TXN-00155",
+    "baseline": {
+      "rankOfTarget": 3,
+      "confident": false,
+      "topTransactionId": "SYN-TXN-00153",
+      "topCorrect": false,
+      "confidentAndCorrect": false
+    },
+    "model": {
+      "rankOfTarget": 1,
+      "confident": false,
+      "topTransactionId": "SYN-TXN-00155",
+      "topCorrect": true,
+      "confidentAndCorrect": false
+    }
+  },
+  {
+    "id": "matcher-SYN-CUST-032-a",
+    "customerId": "SYN-CUST-032",
+    "language": "es",
+    "ambiguityLevel": "2-candidates",
+    "queryStyle": "generic-category",
+    "hasDatePhrase": true,
+    "targetTransactionId": "SYN-TXN-00157",
+    "baseline": {
+      "rankOfTarget": 2,
+      "confident": false,
+      "topTransactionId": "SYN-TXN-00156",
+      "topCorrect": false,
+      "confidentAndCorrect": false
+    },
+    "model": {
+      "rankOfTarget": 1,
+      "confident": true,
+      "topTransactionId": "SYN-TXN-00157",
+      "topCorrect": true,
+      "confidentAndCorrect": true
+    }
+  },
+  {
+    "id": "matcher-SYN-CUST-032-b",
+    "customerId": "SYN-CUST-032",
+    "language": "es",
+    "ambiguityLevel": "3-plus-candidates",
+    "queryStyle": "exact-merchant",
+    "hasDatePhrase": true,
+    "targetTransactionId": "SYN-TXN-00159",
+    "baseline": {
+      "rankOfTarget": 1,
+      "confident": true,
+      "topTransactionId": "SYN-TXN-00159",
+      "topCorrect": true,
+      "confidentAndCorrect": true
+    },
+    "model": {
+      "rankOfTarget": 1,
+      "confident": true,
+      "topTransactionId": "SYN-TXN-00159",
+      "topCorrect": true,
+      "confidentAndCorrect": true
+    }
+  },
+  {
+    "id": "matcher-SYN-CUST-033-a",
+    "customerId": "SYN-CUST-033",
+    "language": "pt",
+    "ambiguityLevel": "2-candidates",
+    "queryStyle": "exact-merchant",
+    "hasDatePhrase": true,
+    "targetTransactionId": "SYN-TXN-00162",
+    "baseline": {
+      "rankOfTarget": 1,
+      "confident": true,
+      "topTransactionId": "SYN-TXN-00162",
+      "topCorrect": true,
+      "confidentAndCorrect": true
+    },
+    "model": {
+      "rankOfTarget": 1,
+      "confident": true,
+      "topTransactionId": "SYN-TXN-00162",
+      "topCorrect": true,
+      "confidentAndCorrect": true
+    }
+  },
+  {
+    "id": "matcher-SYN-CUST-033-b",
+    "customerId": "SYN-CUST-033",
+    "language": "pt",
+    "ambiguityLevel": "3-plus-candidates",
+    "queryStyle": "generic-category",
+    "hasDatePhrase": true,
+    "targetTransactionId": "SYN-TXN-00164",
+    "baseline": {
+      "rankOfTarget": 2,
+      "confident": false,
+      "topTransactionId": "SYN-TXN-00163",
+      "topCorrect": false,
+      "confidentAndCorrect": false
+    },
+    "model": {
+      "rankOfTarget": 1,
+      "confident": false,
+      "topTransactionId": "SYN-TXN-00164",
+      "topCorrect": true,
+      "confidentAndCorrect": false
+    }
+  },
+  {
+    "id": "matcher-SYN-CUST-034-a",
+    "customerId": "SYN-CUST-034",
+    "language": "es",
+    "ambiguityLevel": "2-candidates",
+    "queryStyle": "generic-category",
+    "hasDatePhrase": true,
+    "targetTransactionId": "SYN-TXN-00167",
+    "baseline": {
+      "rankOfTarget": 2,
+      "confident": false,
+      "topTransactionId": "SYN-TXN-00166",
+      "topCorrect": false,
+      "confidentAndCorrect": false
+    },
+    "model": {
+      "rankOfTarget": 1,
+      "confident": false,
+      "topTransactionId": "SYN-TXN-00167",
+      "topCorrect": true,
+      "confidentAndCorrect": false
+    }
+  },
+  {
+    "id": "matcher-SYN-CUST-034-b",
+    "customerId": "SYN-CUST-034",
+    "language": "es",
+    "ambiguityLevel": "3-plus-candidates",
+    "queryStyle": "exact-merchant",
+    "hasDatePhrase": false,
+    "targetTransactionId": "SYN-TXN-00170",
+    "baseline": {
+      "rankOfTarget": 1,
+      "confident": true,
+      "topTransactionId": "SYN-TXN-00170",
+      "topCorrect": true,
+      "confidentAndCorrect": true
+    },
+    "model": {
+      "rankOfTarget": 1,
+      "confident": true,
+      "topTransactionId": "SYN-TXN-00170",
+      "topCorrect": true,
+      "confidentAndCorrect": true
+    }
+  },
+  {
+    "id": "matcher-SYN-CUST-035-a",
+    "customerId": "SYN-CUST-035",
+    "language": "es",
+    "ambiguityLevel": "2-candidates",
+    "queryStyle": "exact-merchant",
+    "hasDatePhrase": true,
+    "targetTransactionId": "SYN-TXN-00171",
+    "baseline": {
+      "rankOfTarget": 1,
+      "confident": true,
+      "topTransactionId": "SYN-TXN-00171",
+      "topCorrect": true,
+      "confidentAndCorrect": true
+    },
+    "model": {
+      "rankOfTarget": 1,
+      "confident": true,
+      "topTransactionId": "SYN-TXN-00171",
+      "topCorrect": true,
+      "confidentAndCorrect": true
+    }
+  },
+  {
+    "id": "matcher-SYN-CUST-035-b",
+    "customerId": "SYN-CUST-035",
+    "language": "es",
+    "ambiguityLevel": "3-plus-candidates",
+    "queryStyle": "generic-category",
+    "hasDatePhrase": true,
+    "targetTransactionId": "SYN-TXN-00174",
+    "baseline": {
+      "rankOfTarget": 2,
+      "confident": false,
+      "topTransactionId": "SYN-TXN-00173",
+      "topCorrect": false,
+      "confidentAndCorrect": false
+    },
+    "model": {
+      "rankOfTarget": 1,
+      "confident": false,
+      "topTransactionId": "SYN-TXN-00174",
+      "topCorrect": true,
+      "confidentAndCorrect": false
+    }
+  },
+  {
+    "id": "matcher-SYN-CUST-036-a",
+    "customerId": "SYN-CUST-036",
+    "language": "es",
+    "ambiguityLevel": "2-candidates",
+    "queryStyle": "generic-category",
+    "hasDatePhrase": true,
+    "targetTransactionId": "SYN-TXN-00177",
+    "baseline": {
+      "rankOfTarget": 2,
+      "confident": false,
+      "topTransactionId": "SYN-TXN-00176",
+      "topCorrect": false,
+      "confidentAndCorrect": false
+    },
+    "model": {
+      "rankOfTarget": 1,
+      "confident": false,
+      "topTransactionId": "SYN-TXN-00177",
+      "topCorrect": true,
+      "confidentAndCorrect": false
+    }
+  },
+  {
+    "id": "matcher-SYN-CUST-036-b",
+    "customerId": "SYN-CUST-036",
+    "language": "es",
+    "ambiguityLevel": "3-plus-candidates",
+    "queryStyle": "exact-merchant",
+    "hasDatePhrase": true,
+    "targetTransactionId": "SYN-TXN-00179",
+    "baseline": {
+      "rankOfTarget": 1,
+      "confident": true,
+      "topTransactionId": "SYN-TXN-00179",
+      "topCorrect": true,
+      "confidentAndCorrect": true
+    },
+    "model": {
+      "rankOfTarget": 1,
+      "confident": true,
+      "topTransactionId": "SYN-TXN-00179",
+      "topCorrect": true,
+      "confidentAndCorrect": true
+    }
+  },
+  {
+    "id": "matcher-SYN-CUST-037-a",
+    "customerId": "SYN-CUST-037",
+    "language": "pt",
+    "ambiguityLevel": "2-candidates",
+    "queryStyle": "exact-merchant",
+    "hasDatePhrase": true,
+    "targetTransactionId": "SYN-TXN-00181",
+    "baseline": {
+      "rankOfTarget": 1,
+      "confident": true,
+      "topTransactionId": "SYN-TXN-00181",
+      "topCorrect": true,
+      "confidentAndCorrect": true
+    },
+    "model": {
+      "rankOfTarget": 1,
+      "confident": true,
+      "topTransactionId": "SYN-TXN-00181",
+      "topCorrect": true,
+      "confidentAndCorrect": true
+    }
+  },
+  {
+    "id": "matcher-SYN-CUST-037-b",
+    "customerId": "SYN-CUST-037",
+    "language": "pt",
+    "ambiguityLevel": "3-plus-candidates",
+    "queryStyle": "generic-category",
+    "hasDatePhrase": false,
+    "targetTransactionId": "SYN-TXN-00183",
+    "baseline": {
+      "rankOfTarget": 1,
+      "confident": false,
+      "topTransactionId": "SYN-TXN-00183",
+      "topCorrect": true,
+      "confidentAndCorrect": false
+    },
+    "model": {
+      "rankOfTarget": 3,
+      "confident": false,
+      "topTransactionId": "SYN-TXN-00185",
+      "topCorrect": false,
+      "confidentAndCorrect": false
+    }
+  },
+  {
+    "id": "matcher-SYN-CUST-038-a",
+    "customerId": "SYN-CUST-038",
+    "language": "es",
+    "ambiguityLevel": "2-candidates",
+    "queryStyle": "generic-category",
+    "hasDatePhrase": true,
+    "targetTransactionId": "SYN-TXN-00187",
+    "baseline": {
+      "rankOfTarget": 2,
+      "confident": false,
+      "topTransactionId": "SYN-TXN-00186",
+      "topCorrect": false,
+      "confidentAndCorrect": false
+    },
+    "model": {
+      "rankOfTarget": 1,
+      "confident": false,
+      "topTransactionId": "SYN-TXN-00187",
+      "topCorrect": true,
+      "confidentAndCorrect": false
+    }
+  },
+  {
+    "id": "matcher-SYN-CUST-038-b",
+    "customerId": "SYN-CUST-038",
+    "language": "es",
+    "ambiguityLevel": "3-plus-candidates",
+    "queryStyle": "exact-merchant",
+    "hasDatePhrase": true,
+    "targetTransactionId": "SYN-TXN-00188",
+    "baseline": {
+      "rankOfTarget": 1,
+      "confident": true,
+      "topTransactionId": "SYN-TXN-00188",
+      "topCorrect": true,
+      "confidentAndCorrect": true
+    },
+    "model": {
+      "rankOfTarget": 1,
+      "confident": true,
+      "topTransactionId": "SYN-TXN-00188",
+      "topCorrect": true,
+      "confidentAndCorrect": true
+    }
+  },
+  {
+    "id": "matcher-SYN-CUST-039-a",
+    "customerId": "SYN-CUST-039",
+    "language": "es",
+    "ambiguityLevel": "2-candidates",
+    "queryStyle": "exact-merchant",
+    "hasDatePhrase": true,
+    "targetTransactionId": "SYN-TXN-00191",
+    "baseline": {
+      "rankOfTarget": 1,
+      "confident": true,
+      "topTransactionId": "SYN-TXN-00191",
+      "topCorrect": true,
+      "confidentAndCorrect": true
+    },
+    "model": {
+      "rankOfTarget": 1,
+      "confident": true,
+      "topTransactionId": "SYN-TXN-00191",
+      "topCorrect": true,
+      "confidentAndCorrect": true
+    }
+  },
+  {
+    "id": "matcher-SYN-CUST-039-b",
+    "customerId": "SYN-CUST-039",
+    "language": "es",
+    "ambiguityLevel": "3-plus-candidates",
+    "queryStyle": "generic-category",
+    "hasDatePhrase": true,
+    "targetTransactionId": "SYN-TXN-00193",
+    "baseline": {
+      "rankOfTarget": 1,
+      "confident": false,
+      "topTransactionId": "SYN-TXN-00193",
+      "topCorrect": true,
+      "confidentAndCorrect": false
+    },
+    "model": {
+      "rankOfTarget": 1,
+      "confident": false,
+      "topTransactionId": "SYN-TXN-00193",
+      "topCorrect": true,
+      "confidentAndCorrect": false
+    }
+  },
+  {
+    "id": "matcher-SYN-CUST-040-a",
+    "customerId": "SYN-CUST-040",
+    "language": "es",
+    "ambiguityLevel": "2-candidates",
+    "queryStyle": "generic-category",
+    "hasDatePhrase": true,
+    "targetTransactionId": "SYN-TXN-00197",
+    "baseline": {
+      "rankOfTarget": 2,
+      "confident": false,
+      "topTransactionId": "SYN-TXN-00196",
+      "topCorrect": false,
+      "confidentAndCorrect": false
+    },
+    "model": {
+      "rankOfTarget": 1,
+      "confident": true,
+      "topTransactionId": "SYN-TXN-00197",
+      "topCorrect": true,
+      "confidentAndCorrect": true
+    }
+  },
+  {
+    "id": "matcher-SYN-CUST-040-b",
+    "customerId": "SYN-CUST-040",
+    "language": "es",
+    "ambiguityLevel": "3-plus-candidates",
+    "queryStyle": "exact-merchant",
+    "hasDatePhrase": false,
+    "targetTransactionId": "SYN-TXN-00198",
+    "baseline": {
+      "rankOfTarget": 1,
+      "confident": true,
+      "topTransactionId": "SYN-TXN-00198",
+      "topCorrect": true,
+      "confidentAndCorrect": true
+    },
+    "model": {
+      "rankOfTarget": 1,
+      "confident": true,
+      "topTransactionId": "SYN-TXN-00198",
       "topCorrect": true,
       "confidentAndCorrect": true
     }
