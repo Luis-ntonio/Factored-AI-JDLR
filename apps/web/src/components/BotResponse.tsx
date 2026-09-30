@@ -86,6 +86,16 @@ const GENERIC_CLARIFY_QUESTION: Record<LanguageCode, string> = {
   pt: "Precisamos revisar sua solicitação com mais detalhe. Você poderia nos dar mais informações sobre sua consulta?",
 };
 
+// "dispute_candidate_selection" es un sentinel de policy-agent
+// (`policies.yaml`, clarify-dispute-ambiguous-candidates) -- NUNCA un
+// EntityKey real, mismo criterio que "session_login". Se renderiza como
+// una lista de botones (las candidatas reales del cliente, ya verificadas
+// por ownership) en vez de una pregunta de texto libre.
+const DISPUTE_CANDIDATE_QUESTION: Record<LanguageCode, string> = {
+  es: "Encontramos más de un cargo reciente que podría ser el que no reconocés. ¿Cuál de estos es?",
+  pt: "Encontramos mais de uma cobrança recente que pode ser a que você não reconhece. Qual delas é?",
+};
+
 function clarifyQuestion(language: LanguageCode, label: string): string {
   return language === "pt"
     ? `Você poderia nos informar ${label.toLowerCase()}?`
@@ -193,20 +203,65 @@ function DisputeResultCard({ dispute, language }: { dispute: DisputeVerification
   );
 }
 
+/** Botones para elegir entre las transacciones candidatas reales (ver
+ * `ChatClarifyResponse.ambiguousCandidates`). Clickear uno reenvía el
+ * turno con `transactionId` como selección estructurada -- el backend
+ * SIEMPRE la revalida contra las candidatas reales recalculadas antes de
+ * confiar en ella (nunca se acepta a ciegas, ver `compute-dispute.ts`). */
+function DisputeCandidateSelection({
+  candidates,
+  language,
+  onSelectDisputeCandidate,
+}: {
+  candidates: NonNullable<Extract<ChatResponse, { status: "clarify" }>["ambiguousCandidates"]>;
+  language: LanguageCode;
+  onSelectDisputeCandidate: (candidate: { transactionId: string; merchant: string | null }) => void;
+}) {
+  return (
+    <div className="info-card clarify-card">
+      <p className="clarify-question">{DISPUTE_CANDIDATE_QUESTION[language]}</p>
+      <div className="dispute-candidate-list">
+        {candidates.map((candidate) => (
+          <button
+            key={candidate.transactionId}
+            type="button"
+            className="dispute-candidate-button"
+            onClick={() => onSelectDisputeCandidate(candidate)}
+          >
+            {candidate.merchant ?? (language === "pt" ? "Cobrança" : "Cargo")} — ${candidate.amount} — {candidate.date}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function ClarifyQuestion({
   response,
   language,
   onLoginSuccess,
+  onSelectDisputeCandidate,
 }: {
   response: Extract<ChatResponse, { status: "clarify" }>;
   language: LanguageCode;
   onLoginSuccess: (session: LoginSession) => void;
+  onSelectDisputeCandidate: (candidate: { transactionId: string; merchant: string | null }) => void;
 }) {
   // "session_login" es un sentinel de policy-agent (`policies.yaml`,
   // clarify-anonymous-requires-login) -- NUNCA un EntityKey real, se
   // renderiza distinto (el modal de login, no una pregunta de texto).
   if (response.policyDecision.askField === "session_login") {
     return <LoginPrompt language={language} onLoginSuccess={onLoginSuccess} />;
+  }
+
+  if (response.policyDecision.askField === "dispute_candidate_selection" && response.ambiguousCandidates?.length) {
+    return (
+      <DisputeCandidateSelection
+        candidates={response.ambiguousCandidates}
+        language={language}
+        onSelectDisputeCandidate={onSelectDisputeCandidate}
+      />
+    );
   }
 
   // `policyDecision.reason` es texto de auditoría para un revisor humano
@@ -251,6 +306,7 @@ export function BotResponse({
   response,
   fallbackLanguage,
   onLoginSuccess,
+  onSelectDisputeCandidate,
 }: {
   response: ChatResponse;
   fallbackLanguage: LanguageCode;
@@ -258,6 +314,11 @@ export function BotResponse({
    * relevante para `status === "clarify"` con `askField === "session_login"`
    * (ver `ClarifyQuestion`/`LoginPrompt`), ignorado en cualquier otro caso. */
   onLoginSuccess: (session: LoginSession) => void;
+  /** Envía la selección del cliente sobre una disputa ambigua -- solo
+   * relevante para `status === "clarify"` con `askField ===
+   * "dispute_candidate_selection"` (ver `ClarifyQuestion`/
+   * `DisputeCandidateSelection`), ignorado en cualquier otro caso. */
+  onSelectDisputeCandidate: (candidate: { transactionId: string; merchant: string | null }) => void;
 }) {
   if (response.status === "unavailable") {
     const language = response.language ?? fallbackLanguage;
@@ -286,7 +347,12 @@ export function BotResponse({
     return (
       <>
         <LanguageBadge language={response.language} />
-        <ClarifyQuestion response={response} language={response.language} onLoginSuccess={onLoginSuccess} />
+        <ClarifyQuestion
+          response={response}
+          language={response.language}
+          onLoginSuccess={onLoginSuccess}
+          onSelectDisputeCandidate={onSelectDisputeCandidate}
+        />
       </>
     );
   }

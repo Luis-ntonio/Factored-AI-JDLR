@@ -11,10 +11,12 @@ export function MessageBubble({
   message,
   currentLanguage,
   onLoginSuccess,
+  onSelectDisputeCandidate,
 }: {
   message: ChatMessage;
   currentLanguage: LanguageCode;
   onLoginSuccess: (session: LoginSession) => void;
+  onSelectDisputeCandidate: (candidate: { transactionId: string; merchant: string | null }) => void;
 }) {
   const isUser = message.role === "user";
 
@@ -31,7 +33,12 @@ export function MessageBubble({
       <div className={`bubble ${isUser ? "bubble-user" : "bubble-bot"}`}>
         {isUser && <p className="bot-text">{message.text}</p>}
         {!isUser && message.response && (
-          <BotResponse response={message.response} fallbackLanguage={currentLanguage} onLoginSuccess={onLoginSuccess} />
+          <BotResponse
+            response={message.response}
+            fallbackLanguage={currentLanguage}
+            onLoginSuccess={onLoginSuccess}
+            onSelectDisputeCandidate={onSelectDisputeCandidate}
+          />
         )}
         {!isUser && message.clientError && (
           <div className="info-card error-card">

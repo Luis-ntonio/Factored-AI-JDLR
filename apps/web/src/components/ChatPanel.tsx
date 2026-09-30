@@ -134,7 +134,7 @@ export function ChatPanel() {
   // obtenida como ARGUMENTO en vez de leer `session` del closure, que en ese
   // momento todavía sería el valor viejo (null). Ver docstring en
   // `AuthContext.tsx`/`login()`.
-  async function sendMessage(text: string, sessionTokenOverride?: string) {
+  async function sendMessage(text: string, sessionTokenOverride?: string, selectedTransactionId?: string) {
     const trimmed = text.trim();
     if (!trimmed || isSending) return;
 
@@ -167,6 +167,7 @@ export function ChatPanel() {
       sessionToken: effectiveSessionToken,
       deviceSessionId: deviceSessionIdRef.current,
       chatOpenedAt,
+      selectedTransactionId,
     });
     resetInactivityTimer();
 
@@ -197,6 +198,15 @@ export function ChatPanel() {
     if (lastUserMessage) void sendMessage(lastUserMessage, newSession.token);
   }
 
+  // Click en un botón de `DisputeCandidateSelection` (ver BotResponse.tsx)
+  // -- el texto enviado es el nombre del comercio (historial de chat
+  // legible, "Netflix" en vez de un ID), más `selectedTransactionId`
+  // estructurado, que el backend SIEMPRE revalida contra las candidatas
+  // reales antes de confiar en él (nunca se acepta a ciegas).
+  function handleSelectDisputeCandidate(candidate: { transactionId: string; merchant: string | null }) {
+    void sendMessage(candidate.merchant ?? candidate.transactionId, undefined, candidate.transactionId);
+  }
+
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -224,7 +234,13 @@ export function ChatPanel() {
       <main className="chat-history">
         {messages.length === 0 && <p className="empty-state">{EMPTY_STATE_TEXT[lang]}</p>}
         {messages.map((message) => (
-          <MessageBubble key={message.id} message={message} currentLanguage={lang} onLoginSuccess={handleLoginSuccess} />
+          <MessageBubble
+            key={message.id}
+            message={message}
+            currentLanguage={lang}
+            onLoginSuccess={handleLoginSuccess}
+            onSelectDisputeCandidate={handleSelectDisputeCandidate}
+          />
         ))}
         {isSending && (
           <div className="message-row message-row-bot">
