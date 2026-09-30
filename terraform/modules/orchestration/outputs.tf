@@ -13,6 +13,11 @@ output "state_machine_log_group_name" {
   value       = aws_cloudwatch_log_group.chat_orchestrator.name
 }
 
+output "state_machine_log_group_arn" {
+  description = "ARN del mismo log group -- para la IAM policy (logs:FilterLogEvents) de admin-agent."
+  value       = aws_cloudwatch_log_group.chat_orchestrator.arn
+}
+
 output "dispatcher_lambda_function_name" {
   description = "Nombre del Lambda dispatcher (API Gateway -> StartSyncExecution)."
   value       = aws_lambda_function.chat_dispatcher.function_name

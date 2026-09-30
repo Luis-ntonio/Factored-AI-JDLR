@@ -42,3 +42,19 @@ output "resend_api_key_parameter_arn" {
   description = "ARN del parámetro SSM de la API key de Resend -- para la IAM policy (ssm:GetParameter + kms:Decrypt) de auth-agent."
   value       = aws_ssm_parameter.resend_api_key.arn
 }
+
+output "admin_api_key_parameter_name" {
+  description = "Nombre del parámetro SSM (SecureString) con la API key del dashboard de admin."
+  value       = aws_ssm_parameter.admin_api_key.name
+}
+
+output "admin_api_key_parameter_arn" {
+  description = "ARN del parámetro SSM de la API key de admin -- para la IAM policy (ssm:GetParameter + kms:Decrypt) de admin-agent."
+  value       = aws_ssm_parameter.admin_api_key.arn
+}
+
+output "admin_api_key" {
+  description = "Valor real de la API key de admin -- recuperar con `terraform output -raw admin_api_key` para usar el header x-admin-key contra /admin/conversations."
+  value       = random_password.admin_api_key.result
+  sensitive   = true
+}

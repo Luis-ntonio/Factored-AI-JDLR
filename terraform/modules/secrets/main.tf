@@ -70,6 +70,28 @@ resource "aws_ssm_parameter" "session_token_secret" {
   tags = local.common_tags
 }
 
+# --- API key del dashboard de admin (services/admin-agent) ---
+#
+# A diferencia de `resend_api_key` (credencial de un tercero externo, nunca
+# generada acá), esta es una credencial PROPIA del proyecto -- mismo
+# criterio que `session_token_secret`: generada por Terraform
+# (`random_password`, nunca elegida a mano/hardcodeada), nunca visible en
+# un plan/output normal. El usuario la recupera con
+# `terraform output -raw admin_api_key` cuando quiera entrar a `/admin`.
+resource "random_password" "admin_api_key" {
+  length  = 32
+  special = false # header HTTP (x-admin-key) -- simplifica copiar/pegar sin problemas de escaping.
+}
+
+resource "aws_ssm_parameter" "admin_api_key" {
+  name        = "/${local.name_prefix}/admin/api_key"
+  description = "API key compartida del dashboard de admin (services/admin-agent) -- header x-admin-key. Generado por Terraform, nunca en git. Superficie separada del sessionToken de clientes bancarios."
+  type        = "SecureString"
+  value       = random_password.admin_api_key.result
+
+  tags = local.common_tags
+}
+
 # --- API key de Resend (login por código OTP, services/auth-agent/src/otp) ---
 #
 # A diferencia de `session_token_secret` (generado por Terraform), esta es

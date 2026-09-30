@@ -139,6 +139,31 @@ module "orchestration" {
   escalation_agent_lambda_arn   = module.agent.escalation_agent_function_arn
 }
 
+module "admin" {
+  source = "../../modules/admin"
+
+  # El zip de admin-agent se genera DENTRO del build de module.agent
+  # (terraform/scripts/package-lambdas.js, 8vo entry) -- sin este
+  # depends_on explícito, el data.archive_file de este módulo podría
+  # intentar leer "../agent/build/admin-agent" antes de que exista. Ver
+  # docstring completo en terraform/modules/admin/main.tf (por qué es un
+  # módulo separado, no un 8vo Lambda dentro de modules/agent).
+  depends_on = [module.agent]
+
+  project_name = var.project_name
+  environment  = var.environment
+  tags         = var.tags
+
+  case_store_table_name = module.data.table_name
+  case_store_table_arn  = module.data.table_arn
+
+  state_machine_log_group_name = module.orchestration.state_machine_log_group_name
+  state_machine_log_group_arn  = module.orchestration.state_machine_log_group_arn
+
+  admin_api_key_parameter_name = module.secrets.admin_api_key_parameter_name
+  admin_api_key_parameter_arn  = module.secrets.admin_api_key_parameter_arn
+}
+
 module "edge" {
   source = "../../modules/edge"
 
@@ -159,6 +184,11 @@ module "edge" {
   # Function (ver docstring de attach_auth_route en modules/edge/variables.tf).
   attach_auth_route            = true
   auth_route_lambda_invoke_arn = module.agent.auth_agent_invoke_arn
+
+  # Dashboard de admin -- mismo criterio, DIRECTO al Lambda admin-agent
+  # (modules/admin).
+  attach_admin_route            = true
+  admin_route_lambda_invoke_arn = module.admin.admin_agent_invoke_arn
 
   # CORS: dominio real de CloudFront (module.frontend) en vez de "*" -- ver
   # local.cors_allow_origins arriba y terraform/modules/edge/README.md.
@@ -211,6 +241,17 @@ resource "aws_lambda_permission" "apigw_invoke_auth_agent" {
   statement_id  = "AllowAPIGatewayInvoke"
   action        = "lambda:InvokeFunction"
   function_name = module.agent.auth_agent_function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${module.edge.api_execution_arn}/*/*"
+}
+
+# Mismo criterio que apigw_invoke_auth_agent de arriba -- admin-agent es
+# invocado DIRECTO por API Gateway, nunca a través del dispatcher/Step
+# Function.
+resource "aws_lambda_permission" "apigw_invoke_admin_agent" {
+  statement_id  = "AllowAPIGatewayInvoke"
+  action        = "lambda:InvokeFunction"
+  function_name = module.admin.admin_agent_function_name
   principal     = "apigateway.amazonaws.com"
   source_arn    = "${module.edge.api_execution_arn}/*/*"
 }

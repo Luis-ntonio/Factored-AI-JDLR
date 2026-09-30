@@ -168,6 +168,18 @@ const LAMBDAS = [
     copyPolicies: false,
     external: [],
   },
+  {
+    // Dashboard de admin (interno), expuesto vía API Gateway (GET
+    // /admin/conversations, GET /admin/conversations/{caseId}/trace) --
+    // NUNCA invocado por la Step Function, mismo motivo que auth-agent. No
+    // lee policies.yaml. Usa @aws-sdk/client-cloudwatch-logs/client-ssm
+    // (ninguno "core"), sin garantía de venir preinstalados -- se bundlea
+    // completo, mismo criterio que auth-agent (external: []).
+    name: "admin-agent",
+    entry: path.join(REPO_ROOT, "services/admin-agent/src/index.ts"),
+    copyPolicies: false,
+    external: [],
+  },
 ];
 
 function main() {

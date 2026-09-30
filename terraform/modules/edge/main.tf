@@ -140,3 +140,33 @@ resource "aws_apigatewayv2_route" "otp_verify" {
   route_key = var.otp_verify_route_key
   target    = "integrations/${aws_apigatewayv2_integration.auth[0].id}"
 }
+
+# Mismo criterio que la integración de auth de arriba (count/attach_*_route
+# separado del ARN, DIRECTO al Lambda admin-agent, nunca vía Step
+# Function) -- dashboard de admin, superficie interna separada del chat.
+resource "aws_apigatewayv2_integration" "admin" {
+  count = var.attach_admin_route ? 1 : 0
+
+  api_id                 = aws_apigatewayv2_api.this.id
+  integration_type       = "AWS_PROXY"
+  integration_uri        = var.admin_route_lambda_invoke_arn
+  payload_format_version = "2.0"
+}
+
+resource "aws_apigatewayv2_route" "admin_conversations" {
+  count = var.attach_admin_route ? 1 : 0
+
+  api_id    = aws_apigatewayv2_api.this.id
+  route_key = var.admin_conversations_route_key
+  target    = "integrations/${aws_apigatewayv2_integration.admin[0].id}"
+}
+
+# Misma integración de arriba (mismo Lambda admin-agent, que despacha por
+# `event.rawPath`) -- no hace falta una integración nueva.
+resource "aws_apigatewayv2_route" "admin_trace" {
+  count = var.attach_admin_route ? 1 : 0
+
+  api_id    = aws_apigatewayv2_api.this.id
+  route_key = var.admin_trace_route_key
+  target    = "integrations/${aws_apigatewayv2_integration.admin[0].id}"
+}

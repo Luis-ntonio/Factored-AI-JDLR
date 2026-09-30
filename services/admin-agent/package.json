@@ -1,0 +1,26 @@
+{
+  "name": "@banking-agent/admin-agent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Dashboard de admin (interno, NO cliente bancario): lista de conversaciones reales (Scan sobre banking-agent-dev-case-store) y traza completa por caso (leída de los logs de CloudWatch del Step Function, que ya loguea cada paso del pipeline completo -- level: ALL, include_execution_data: true). Autenticado con un API key compartido (x-admin-key), separado a propósito del sessionToken de clientes.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json && tsc -p tsconfig.scripts.json",
+    "test": "vitest run",
+    "generate:usage-report": "node dist/scripts/generate-usage-report.js"
+  },
+  "dependencies": {
+    "@aws-sdk/client-cloudwatch-logs": "^3.665.0",
+    "@aws-sdk/client-dynamodb": "^3.665.0",
+    "@aws-sdk/client-ssm": "^3.665.0",
+    "@aws-sdk/lib-dynamodb": "^3.665.0",
+    "@banking-agent/shared": "0.1.0"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.145",
+    "@types/node": "^20.16.11",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.4"
+  }
+}

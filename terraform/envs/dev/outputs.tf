@@ -43,6 +43,12 @@ output "third_party_api_credentials_secret_arn" {
   value       = module.secrets.third_party_api_credentials_secret_arn
 }
 
+output "admin_api_key" {
+  description = "API key real del dashboard de admin -- recuperar con `terraform output -raw admin_api_key` desde este directorio y usarla como header x-admin-key contra /admin/conversations (o en el prompt de /admin en el frontend)."
+  value       = module.secrets.admin_api_key
+  sensitive   = true
+}
+
 # --- Lambdas de lógica de negocio (module.agent) ---
 
 output "conversation_agent_function_name" {

@@ -87,6 +87,30 @@ variable "otp_verify_route_key" {
   default     = "POST /auth/otp/verify"
 }
 
+variable "attach_admin_route" {
+  description = "Mismo criterio/motivo que attach_auth_route (booleano LITERAL separado del ARN, que puede ser known-after-apply) -- para las 2 rutas del dashboard de admin (GET /admin/conversations, GET /admin/conversations/{caseId}/trace) -> admin-agent, invocado DIRECTO por API Gateway (nunca vía la Step Function)."
+  type        = bool
+  default     = false
+}
+
+variable "admin_route_lambda_invoke_arn" {
+  description = "ARN de invocación (invoke_arn) del Lambda admin-agent (modules/admin). Solo se usa si var.attach_admin_route = true."
+  type        = string
+  default     = null
+}
+
+variable "admin_conversations_route_key" {
+  description = "Route key HTTP para listar conversaciones, usado solo si attach_admin_route = true."
+  type        = string
+  default     = "GET /admin/conversations"
+}
+
+variable "admin_trace_route_key" {
+  description = "Route key HTTP para la traza de un caso puntual, usado solo si attach_admin_route = true. Misma integración/Lambda que admin_conversations_route_key -- admin-agent despacha por rawPath."
+  type        = string
+  default     = "GET /admin/conversations/{caseId}/trace"
+}
+
 variable "cors_allow_origins" {
   description = <<-EOT
     Lista de origins permitidos en el `cors_configuration` nativo del HTTP

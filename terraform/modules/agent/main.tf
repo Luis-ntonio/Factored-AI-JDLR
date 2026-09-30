@@ -42,6 +42,7 @@ locals {
     "${var.repo_root}/services/verification-agent/src",
     "${var.repo_root}/services/escalation-agent/src",
     "${var.repo_root}/services/auth-agent/src",
+    "${var.repo_root}/services/admin-agent/src",
     "${var.repo_root}/packages/shared/src",
     "${var.repo_root}/terraform/scripts",
   ]
