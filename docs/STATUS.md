@@ -1349,4 +1349,147 @@ Repro mínimo (Node, confirmado antes de escribir esto):
 
 **Impacto real**: cualquier clarify que pida `document_id` a un cliente CURP (María/Roberto) es un callejón sin salida por texto libre — ninguna respuesta natural lo completa, el turno siguiente cae a `intent: unknown` y escala. Para clientes DNI/CC (Julieta/Carlos), funciona solo si el cliente escribe el número sin puntos, lo cual no es la forma más natural de escribirlo.
 
-**Estado: NO arreglado en esta fase** (fuera de alcance del simulador, es un gap de `conversation-agent`) — queda documentado para una fase futura. Dirección de fix sugerida, no implementada: agregar un patrón CURP (`\b[A-Z]{4}\d{6}[A-Z]{6}\d{2}\b`, case-insensitive) y permitir separadores (`.`/`-`/espacio) opcionales dentro del grupo de dígitos de `DOCUMENT_LABEL_PATTERN` antes de normalizar.
+**Estado: RESUELTO** -- ver fase "Reparos propuestos" más abajo (ítem #1).
+
+## Fase Reparos propuestos (2026-10-01)
+
+Tras el hallazgo de `entity-extractor.ts` (fase anterior), se le pidió al
+agente proponer reparos para TODO lo que seguía abierto en este documento
+y en `policies.yaml`, priorizados por costo/beneficio. El usuario eligió
+implementar 3 de los propuestos (#1+#2 juntos, #3, #4) ahora mismo; el
+resto queda tal cual estaba documentado (WAF/`AdministratorAccess`/sin CI/
+hardening de `modules/frontend`, Kinesis Firehose bloqueado por cuenta,
+harness del matcher 100% sintético) -- no son bugs nuevos, son las mismas
+limitaciones ya declaradas antes de esta fase.
+
+### #1 -- `entity-extractor.ts`: CURP y DNI con puntos ahora se reconocen
+
+Fix exacto al gap documentado arriba: `CURP_PATTERN` nuevo
+(`/\b[A-Za-z]{4}\d{6}[A-Za-z]{6}\d{2}\b/`, clasificado `document_type:
+"other"` -- `DocumentType` no tiene un valor CURP dedicado, mismo criterio
+ya usado para cédula CO) + `DOCUMENT_LABEL_PATTERN` ahora acepta
+separadores (`.`/`-`/espacio) dentro del grupo de dígitos, normalizándolos
+antes de validar longitud 5-14. 6 tests nuevos (`entity-extractor.test.ts`)
+con los 2 mensajes reales que dispararon el hallazgo + regresión de los
+casos que ya funcionaban (DNI etiquetado, DNI sin etiqueta, CPF). 99 tests
+verdes en `conversation-agent` (sin regresión).
+
+### #2 -- El simulador ahora conoce el documento REAL del perfil
+
+`services/admin-agent/src/simulation/user-simulator.ts`: el prompt del
+cliente sintético ahora incluye `profile.documentId` y una regla explícita
+("respondé EXACTAMENTE con el número de documento de tu perfil, nunca
+inventes uno distinto") -- antes el simulador inventaba un número
+plausible pero falso (fue justamente lo que disparó el hallazgo #1). Sin
+este fix, el simulador seguiría probando una ruta que ningún cliente real
+tomaría (dar un documento inventado), en vez de la ruta real que SÍ debería
+funcionar ahora con #1.
+
+### #3 -- `is_repeat_complainer` (reincidencia de reclamos), reabierto y resuelto
+
+Señal nueva `UnderstandContext.priorDisputeCount` (número de cases
+PREVIOS del mismo `customerId` con `lastIntent =
+dispute_unrecognized_charge`, `null` si no se pudo calcular -- NUNCA
+forzado a `0`). Calculada por
+`ConversationStateStore.countPastDisputeCases` (nuevo método,
+`services/conversation-agent/src/context/state-store.ts`): un `Query`
+sobre el GSI `by-customer` que YA EXISTE (`gsi1pk = CUSTOMER#<customerId>`,
+puesto en cada item de ese cliente desde el día 1) -- cero tablas/GSI
+nuevos, mismo reuso que ya usa `admin-agent` para listar simulaciones.
+Corre en paralelo con la lectura de estado del turno (`Promise.all`), y un
+fallo de esta query NUNCA marca `degraded` (es una señal opcional
+adicional, no core del merge del turno) -- a diferencia de un fallo de
+lectura/escritura de `STATE#latest`.
+
+Regla nueva en `policies.yaml`: `escalate-dispute-repeat-complainer`
+(`context.priorDisputeCount >= config.dispute_repeat_complainer_threshold`,
+default `2`) -- el operador `gte` del evaluador nunca es verdadero contra
+`null`, así que un fallo de la query simplemente no dispara la regla,
+nunca escala a ciegas por un problema de infraestructura. 3 tests nuevos
+en `evaluator.test.ts` (dispara en el umbral, no dispara debajo del
+umbral, no dispara con `null`) + 7 tests nuevos en
+`state-store-fallback.test.ts` (conteo real, paginación, fallo de
+DynamoDB, wiring completo en `buildUnderstandOutput`). 99 tests verdes en
+`conversation-agent`, 34 en `policy-agent` (sin regresión en ninguno).
+
+**Limitación que queda** (documentada, no un bug): la ventana de
+reincidencia es toda la retención real de case-store (TTL, hoy 30 días) --
+no hay una ventana de tiempo propia/más corta configurable para esta regla
+en particular.
+
+### #4 -- Señal de categoría (`merchant_category`) en el matcher de disputas
+
+Investigación ANTES de implementar reveló que la propuesta original no
+aplicaba al caso que motivó el pedido: `generate-matcher-fixtures.ts`
+construye cada caso ambiguo con candidatas del MISMO `MerchantGroup`
+(mismo rubro por diseño), así que una señal de categoría no puede
+discriminar ahí -- el cruce `generic-category`+sin-fecha sigue en nivel de
+azar por diseño del dataset, no por falta de esta señal. Confirmado con el
+usuario antes de seguir (ver AskUserQuestion de esta sesión); se implementó
+igual, más un caso nuevo (`crossCategory: true`, "Caso C") que SÍ mide el
+aporte real.
+
+**`transaction-matcher.ts`**: `modelScore` gana un 4to término --
+similitud de embeddings entre `query.merchant` (lo que el cliente
+escribió, nombre real o frase genérica de rubro) y
+`candidate.merchant_category` -- reusa el MISMO `embed` ya inyectado,
+nunca una taxonomía/keyword list nueva. Pesos re-balanceados: `merchant
+0.4 / amount 0.25 / date 0.15 / category 0.2` (antes 0.5/0.3/0.2) --
+redistribuidos proporcionalmente si falta alguna señal, mismo criterio que
+ya existía. 3 tests nuevos en `transaction-matcher.test.ts` (categoría
+rechaza una decoy de otro rubro, candidata sin `merchant_category` se
+omite con gracia, fallo del embed de categoría se omite con gracia).
+
+**`generate-matcher-fixtures.ts`**: cada `MerchantGroup` gana un
+`categoryLabel` real (ej. "Streaming", "Food & Beverage", "Online Retail",
+"Transportation", "Groceries" -- mismo vocabulario que `mock-core-
+banking.ts` ya usa), propagado a `Transaction.merchant_category` en TODAS
+las candidatas generadas. "Caso C" nuevo (`buildCrossCategoryCase`, 1 por
+cliente sintético, 40 casos nuevos): candidata target + 1 decoy de un
+`MerchantGroup` DISTINTO, mismo monto aproximado, consulta SIEMPRE
+`generic-category` y SIN frase de fecha -- aísla el aporte real de la
+señal nueva (si el merchant/fecha no pueden discriminar, ¿discrimina la
+categoría?). Dataset sintético sube de 80 a 120 casos (102 held-out tras
+excluir `designSet`).
+
+**Resultado real, medido** (`docs/EVALUATION-DISPUTE-MATCHER.md`,
+regenerado con embeddings reales de Bedrock, `AWS_PROFILE=banking-agent-
+dev`):
+
+| Grupo | Casos | Recall@1 baseline | Recall@1 modelo |
+| --- | --- | --- | --- |
+| same-category (candidatas del mismo rubro) | 68 | 73.5% | 94.1% |
+| cross-category (candidatas de rubro distinto) | 34 | **52.9%** | **97.1%** |
+
+Exactamente lo predicho: la señal de categoría da un salto real donde
+corresponde (cross-category, baseline casi al nivel de azar -> modelo
+97.1%), y el agregado global (Recall@1 66.7% baseline / 95.1% modelo,
+MRR 0.828/0.972) se mantiene estable respecto al reporte anterior (antes
+de esta fase: 95.0%/0.975) -- la señal nueva no degradó nada de lo que ya
+funcionaba. Precisión-cuando-confiado se mantuvo en 100% para ambos arms
+en toda la corrida (0 falsos positivos nuevos). El cruce
+`generic-category`+sin-fecha restringido a SAME-category sigue siendo el
+punto ciego real declarado (ninguna señal disponible puede discriminar
+ahí, confirmado, no es un bug) -- queda documentado en el propio reporte,
+sección "Limitaciones declaradas".
+
+**Nota operativa encontrada en el camino** (no un bug del código, un
+gotcha del entorno): `AWS_PROFILE`/`EMBEDDING_MODEL_ID_PARAM_NAME` pasados
+inline a `npm run` en Git Bash sobre Windows fallan silenciosamente --
+MSYS reescribe cualquier valor de env var que empiece con `/` como si
+fuera un path POSIX a convertir (`/banking-agent-dev/...` -> `C:/Program
+Files/Git/banking-agent-dev/...`), y `getEmbeddingConfig()` atrapa el
+`ParameterNotFound` resultante con gracia (silenciosamente cae a "sin
+embeddings"), nunca lo expone. Fix: `export MSYS_NO_PATHCONV=1` antes de
+correr cualquier script de este repo con un env var que empiece con `/`
+en Git Bash.
+
+### Estado final de esta fase
+
+- 96 tests en `transaction-agent`, 99 en `conversation-agent`, 34 en
+  `policy-agent`, 36 en `admin-agent` -- monorepo completo (9 workspaces)
+  en verde, sin regresión en ninguno.
+- `tsc --noEmit` limpio en los 4 servicios tocados.
+- `docs/EVALUATION-DISPUTE-MATCHER.md` regenerado con datos reales de
+  Bedrock (no una corrida sin embeddings) -- mismo criterio de rigor que
+  el resto de este documento.
