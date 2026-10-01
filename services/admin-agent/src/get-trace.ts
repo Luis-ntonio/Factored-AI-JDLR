@@ -85,10 +85,23 @@ function redact(value: unknown): unknown {
   return value;
 }
 
+export interface GetConversationTraceOptions {
+  /** Acota la ventana de tiempo de `FilterLogEventsCommand` (epoch millis)
+   * -- OPCIONAL, sin acotar por default (el dashboard de admin busca UN
+   * caso puntual, que puede ser viejo; acotar ahí sería incorrecto, no
+   * una optimización). `generate-usage-report.ts` SÍ la pasa (recorre
+   * TODAS las conversaciones en secuencia -- sin acotar, cada una escanea
+   * el log group completo, lento en agregado sobre un log group que ya
+   * acumuló mucha actividad de prueba real). */
+  startTime?: number;
+  endTime?: number;
+}
+
 export async function getConversationTrace(
   logsClient: Pick<CloudWatchLogsClient, "send">,
   logGroupName: string,
-  caseId: string
+  caseId: string,
+  options: GetConversationTraceOptions = {}
 ): Promise<GetTraceResult> {
   if (!SAFE_CASE_ID.test(caseId)) return { ok: false };
 
@@ -100,6 +113,8 @@ export async function getConversationTrace(
         new FilterLogEventsCommand({
           logGroupName,
           filterPattern: `"${caseId}"`,
+          startTime: options.startTime,
+          endTime: options.endTime,
           nextToken,
         })
       );

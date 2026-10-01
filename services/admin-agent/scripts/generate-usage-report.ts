@@ -35,22 +35,48 @@ const USD_PER_OUTPUT_TOKEN = 15.0 / 1_000_000;
 
 const REPORT_PATH = path.resolve(process.cwd(), "../../docs/USAGE-ANALYTICS.md");
 
-interface StepModelProposal {
-  tokenUsage?: { inputTokens?: number; outputTokens?: number };
-}
-
-function extractTokenUsage(turn: TurnTrace): { inputTokens: number; outputTokens: number } {
-  let inputTokens = 0;
-  let outputTokens = 0;
-  for (const step of turn.steps) {
-    const output = step.output as { modelProposal?: StepModelProposal } | null;
-    const usage = output?.modelProposal?.tokenUsage;
-    if (usage) {
-      inputTokens += usage.inputTokens ?? 0;
-      outputTokens += usage.outputTokens ?? 0;
+/**
+ * `modelProposal.tokenUsage` aparece a profundidades DISTINTAS según el
+ * paso -- `Decide` lo anida bajo `decideResult.Payload.modelProposal`,
+ * `PostActionDecide` bajo `postActionResult.Payload.modelProposal` (ver
+ * `terraform/modules/orchestration/asl/chat-orchestrator.asl.json.tftpl`,
+ * cómo cada Pass arma su propio payload). En vez de hardcodear esas 2
+ * rutas puntuales (frágil si la ASL cambia), busca `tokenUsage`
+ * recursivamente en CUALQUIER profundidad del output de cada paso --
+ * mismo criterio "nunca asumir una forma exacta sin validarla" del resto
+ * del pipeline.
+ */
+function findTokenUsageRecursive(value: unknown, acc: { inputTokens: number; outputTokens: number }): void {
+  if (!value || typeof value !== "object") return;
+  for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+    if (key === "tokenUsage" && child && typeof child === "object") {
+      const usage = child as { inputTokens?: number; outputTokens?: number };
+      acc.inputTokens += usage.inputTokens ?? 0;
+      acc.outputTokens += usage.outputTokens ?? 0;
+    } else {
+      findTokenUsageRecursive(child, acc);
     }
   }
-  return { inputTokens, outputTokens };
+}
+
+// SOLO estos 2 pasos "producen" un modelProposal nuevo (post-action's
+// Prepare* Pass states arman un payload fresco que NO carga el estado
+// completo anterior) -- los estados de RUTEO (Choice: RouteByDecision/
+// RouteAutoIntent/etc.) o los `Pass` intermedios suelen reenviar el MISMO
+// objeto de estado acumulado sin transformarlo, así que buscar
+// `tokenUsage` en CUALQUIER step contaría el mismo token varias veces
+// (una vez por cada step que simplemente reenvía el mismo payload). Se
+// restringe a los dos pasos DUEÑOS del dato para evitar ese doble conteo.
+const MODEL_PROPOSAL_OWNER_STEPS = new Set(["Decide", "PostActionDecide"]);
+
+function extractTokenUsage(turn: TurnTrace): { inputTokens: number; outputTokens: number } {
+  const acc = { inputTokens: 0, outputTokens: 0 };
+  for (const step of turn.steps) {
+    if (MODEL_PROPOSAL_OWNER_STEPS.has(step.name)) {
+      findTokenUsageRecursive(step.output, acc);
+    }
+  }
+  return acc;
 }
 
 function extractFinalStatus(turn: TurnTrace): string {
@@ -87,9 +113,18 @@ async function main(): Promise<void> {
   const conversations = conversationsResult.value;
   console.log(`[generate-usage-report] ${conversations.length} conversación(es) encontrada(s). Reconstruyendo trazas...`);
 
+  // Acota la ventana de FilterLogEvents a los últimos 14 días -- sin esto,
+  // CADA una de las N conversaciones escanea el log group COMPLETO
+  // (potencialmente toda su retención de 30 días, con include_execution_data
+  // = true generando volumen real), lento en agregado para N conversaciones
+  // en secuencia. El dashboard de admin (lookup de UN caso puntual) sigue
+  // sin acotar -- ver docstring de GetConversationTraceOptions.
+  const startTime = Date.now() - 14 * 24 * 60 * 60 * 1000;
+
   const allTurns: TurnTrace[] = [];
-  for (const conversation of conversations) {
-    const traceResult = await getConversationTrace(logsClient, logGroupName, conversation.caseId);
+  for (const [idx, conversation] of conversations.entries()) {
+    process.stdout.write(`[generate-usage-report] (${idx + 1}/${conversations.length}) ${conversation.caseId}...\n`);
+    const traceResult = await getConversationTrace(logsClient, logGroupName, conversation.caseId, { startTime });
     if (traceResult.ok) allTurns.push(...traceResult.value);
   }
   console.log(`[generate-usage-report] ${allTurns.length} turno(s) real(es) reconstruido(s) de los logs.`);
