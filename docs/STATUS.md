@@ -1313,3 +1313,40 @@ Pregunta del usuario que originó esta pieza: "si falta una señal, ¿por qué n
 **Diseño deliberado sin estado nuevo en DynamoDB**: la selección se revalida cada turno recalculando las candidatas reales desde los `entities` ya persistidos (mecanismo de merge ya existente) — no hace falta recordar "qué candidatas se ofrecieron" entre turnos, evitando un cambio de esquema de persistencia.
 
 **Qué NO se hizo (deliberado)**: sin tope nuevo de reintentos si la selección no matchea (mismo nivel de tolerancia que cualquier otro campo pendiente); sin cambios en verification-agent (confirmado passthrough real) ni en el evaluador genérico de policy-agent.
+
+## Fase Simulador de conversaciones — nueva vista de admin + hallazgo real en entity-extractor (2026-10-01)
+
+Pregunta del usuario sobre qué falta para que el sistema sea más robusto de cara a evaluación ("un generador de conversaciones para evaluación con un objetivo y resolución a base de un perfil de usuario?") — construido como una vista nueva de admin (`/admin`, pestaña "Simulaciones"), apalancada en lo ya existente: perfiles = los 4 clientes mock reales, objetivos = catálogo fijo de 4 escenarios con `expectedStatus`, y un cliente sintético (Bedrock, tool use forzado, mismo patrón que `model-decider.ts`) que juega el rol del usuario turno a turno contra el pipeline REAL desplegado (`POST /auth/login` + `POST /chat`, nunca la Step Function invocada directo). El veredicto es estructural (`finalStatus === expectedStatus`), nunca otro LLM opinando — "el modelo propone, el código dispone" aplicado también acá: el modelo solo decide qué escribiría el cliente, nunca si el resultado fue correcto.
+
+Detalle técnico completo (worker async vía self-invoke del mismo Lambda, persistencia reusando `case-store` con `gsi1pk=SIMULATIONS` sobre el GSI `by-customer` ya existente, IAM/Terraform) en los commits `18e6790` (backend+infra) y `6580d6f` (frontend). Verificado real contra AWS tras el `terraform apply` del usuario: 2 corridas por `curl` + corridas adicionales y navegación completa en browser real contra CloudFront.
+
+### Hallazgo real: `entity-extractor.ts` nunca puede extraer un `document_id` en varios formatos reales
+
+Encontrado por la SEGUNDA corrida real del simulador (objetivo `dispute-ambiguous`, perfil María/CUST-0001), no por un test ni por inspección de código previa — exactamente el tipo de caso que un tester humano no escribiría a mano porque normalmente tipea el formato "que ya sabe que funciona":
+
+- Turno 1 (disputa de $219, sin comercio): `status: "clarify"`, `askField: "document_id"` (correcto, es un campo requerido faltante).
+- Turno 2, el cliente sintético respondió **"Mi número de documento es 28.456.789."** (formato DNI con puntos, natural para alguien de Argentina) → `status: "escalate"`, `intent: "unknown"` — el documento NUNCA se extrajo (`entities.document_id: null`), conversation-agent perdió el contexto de la disputa entera y escaló en vez de continuar.
+
+**Causa raíz, verificada empíricamente (no asumida)**: `services/conversation-agent/src/router/entity-extractor.ts` tiene exactamente 3 patrones para reconocer un documento en texto libre —
+
+```
+CPF_PATTERN            = /\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b/        // Brasil, numérico
+DNI_PATTERN             = /\b\d{8}\b/                              // 8 dígitos CONTIGUOS
+DOCUMENT_LABEL_PATTERN  = /\b(cpf|dni|cédula|cedula|documento|c\.?c\.?)\D{0,10}(\d{5,14})\b/i
+```
+
+Dos problemas reales, confirmados con un repro directo de la regex (no solo con el caso del simulador):
+
+1. **Ningún patrón reconoce CURP** (formato mexicano real, alfanumérico de 18 caracteres, ej. `LOTM900101MDFPRR09` — el document_type real de María y de Roberto, 2 de los 4 clientes mock). "Mi CURP es LOTM900101MDFPRR09." no matchea ninguno de los 3 patrones — `document_id` queda `null` sin importar cómo lo escriba el cliente.
+2. **`DOCUMENT_LABEL_PATTERN` exige el grupo de dígitos CONTIGUO** (`\d{5,14}` sin separadores internos) — un DNI argentino escrito con el separador de miles convencional ("28.456.789") rompe el match en fragmentos de 2/3/3 dígitos, ninguno llega a 5. Sin los puntos ("28456789") sí matchea.
+
+Repro mínimo (Node, confirmado antes de escribir esto):
+```js
+"Mi número de documento es 28.456.789.".match(DOCUMENT_LABEL_PATTERN) // null
+"Mi CURP es LOTM900101MDFPRR09.".match(DOCUMENT_LABEL_PATTERN)        // null
+"Mi documento es 28456789.".match(DOCUMENT_LABEL_PATTERN)             // matchea, digits="28456789"
+```
+
+**Impacto real**: cualquier clarify que pida `document_id` a un cliente CURP (María/Roberto) es un callejón sin salida por texto libre — ninguna respuesta natural lo completa, el turno siguiente cae a `intent: unknown` y escala. Para clientes DNI/CC (Julieta/Carlos), funciona solo si el cliente escribe el número sin puntos, lo cual no es la forma más natural de escribirlo.
+
+**Estado: NO arreglado en esta fase** (fuera de alcance del simulador, es un gap de `conversation-agent`) — queda documentado para una fase futura. Dirección de fix sugerida, no implementada: agregar un patrón CURP (`\b[A-Z]{4}\d{6}[A-Z]{6}\d{2}\b`, case-insensitive) y permitir separadores (`.`/`-`/espacio) opcionales dentro del grupo de dígitos de `DOCUMENT_LABEL_PATTERN` antes de normalizar.
