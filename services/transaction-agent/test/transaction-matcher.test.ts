@@ -134,6 +134,50 @@ describe("modelScore", () => {
   });
 });
 
+describe("modelScore — señal de categoría (docs/STATUS.md, reparos propuestos item #4)", () => {
+  const fakeEmbedWithCategory = async (text: string): Promise<readonly number[] | null> => {
+    const normalized = text.toLowerCase();
+    if (normalized.includes("netflix") || normalized.includes("streaming")) return [1, 0, 0];
+    if (normalized.includes("grocer") || normalized.includes("supermercado")) return [0, 0, 1];
+    // Nombre de comercio genérico sin señal fuerte -- a propósito, para
+    // aislar el aporte de `merchant_category` del término de comercio.
+    return [0.5, 0.5, 0];
+  };
+
+  it("merchant_category rechaza una decoy de otro rubro cuando el nombre del comercio no distingue", async () => {
+    const query = baseQuery({ merchant: "un cobro de streaming" });
+    const streamingCandidate = tx({ merchant_name: "Servicio X", merchant_category: "Streaming" });
+    const groceryCandidate = tx({ merchant_name: "Servicio Y", merchant_category: "Supermercado" });
+
+    const streamingScore = await modelScore(streamingCandidate, query, fakeEmbedWithCategory);
+    const groceryScore = await modelScore(groceryCandidate, query, fakeEmbedWithCategory);
+
+    expect(streamingScore).toBeGreaterThan(groceryScore);
+  });
+
+  it("candidata sin merchant_category -> el término de categoría se omite, nunca crashea", async () => {
+    const query = baseQuery({ merchant: "streaming" });
+    const score = await modelScore(tx({ merchant_name: "Netflix", merchant_category: undefined }), query, fakeEmbedWithCategory);
+    expect(score).toBeGreaterThan(0);
+    expect(Number.isNaN(score)).toBe(false);
+  });
+
+  it("embed de categoría que falla (null) -> se omite con gracia, el resto de señales sigue contribuyendo", async () => {
+    const partiallyFailingEmbed = async (text: string): Promise<readonly number[] | null> => {
+      if (text === "Streaming") return null; // simula que SOLO el embed de la categoría falla
+      return fakeEmbedWithCategory(text);
+    };
+    const query = baseQuery({ merchant: "streaming", disputedAmount: 219 });
+    const score = await modelScore(
+      tx({ merchant_name: "Netflix", merchant_category: "Streaming", amount: 219 }),
+      query,
+      partiallyFailingEmbed
+    );
+    expect(score).toBeGreaterThan(0);
+    expect(Number.isNaN(score)).toBe(false);
+  });
+});
+
 describe("rankAndDecide", () => {
   it("un solo candidato -> siempre confiado", async () => {
     const decision = await rankAndDecide([tx({ transaction_id: "TXN-A" })], baseQuery(), baselineScore);

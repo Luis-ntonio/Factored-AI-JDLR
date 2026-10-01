@@ -44,6 +44,7 @@ interface CaseResult {
   ambiguityLevel: "2-candidates" | "3-plus-candidates";
   queryStyle: "exact-merchant" | "generic-category";
   hasDatePhrase: boolean;
+  crossCategory: boolean;
   targetTransactionId: string;
   baseline: ArmResult;
   model: ArmResult;
@@ -134,6 +135,7 @@ async function main(): Promise<void> {
       ambiguityLevel: c.ambiguityLevel,
       queryStyle: c.queryStyle,
       hasDatePhrase: c.hasDatePhrase,
+      crossCategory: c.crossCategory,
       targetTransactionId: c.targetTransactionId,
       baseline,
       model,
@@ -228,6 +230,14 @@ function writeReport(
   // es difícil"). Esta tabla la hace explícita.
   const byStyleAndDate = breakdownBy(
     (r) => `${r.queryStyle} / ${r.hasDatePhrase ? "con fecha" : "sin fecha"}`
+  );
+  // "Caso C" (docs/STATUS.md, reparos propuestos item #4): candidatas de
+  // merchant_category DISTINTA entre sí -- aísla el aporte real de la
+  // señal de categoría agregada a modelScore. "same-category" son los
+  // casos A/B preexistentes (candidatas del MISMO grupo a propósito, la
+  // señal de categoría nunca discrimina ahí por diseño del dataset).
+  const byCrossCategory = breakdownBy((r) =>
+    r.crossCategory ? "cross-category (candidatas de rubro distinto)" : "same-category (candidatas del mismo rubro)"
   );
 
   const lines: string[] = [];
@@ -328,6 +338,10 @@ function writeReport(
     "cruce estilo de consulta × presencia de frase de fecha (celda real de punto ciego)",
     byStyleAndDate
   );
+  writeBreakdownTable(
+    "cross-category vs. same-category (aporte real de merchant_category en modelScore)",
+    byCrossCategory
+  );
 
   lines.push("## Determinismo de embeddings");
   lines.push("");
@@ -346,7 +360,7 @@ function writeReport(
     "- Dataset sintético (generado programáticamente, no transacciones/disputas reales de clientes) -- mide si el matcher hace lo que su diseño promete, no si ese diseño captura toda la variedad real de cómo la gente describe una disputa."
   );
   lines.push(
-    "- Por construcción, `queryStyle: \"generic-category\"` sin frase de fecha (`hasDatePhrase: false`) es un caso donde NINGUNA señal discrimina entre candidatas para ninguno de los dos arms -- confirmado en la tabla de cruce arriba (Recall@1 ~nivel de azar para ambos arms en esa celda puntual), limitación real y esperada del diseño actual, no un bug. Cerrarla de verdad requeriría una señal nueva de categoría/rubro (`Transaction.merchant_category`, no usada hoy por el matcher) o, más robusto, preguntarle al cliente cuál candidata es la correcta en vez de escalar directo (ver plan de CLARIFY post-Act, fuera del scope de este harness)."
+    "- Por construcción, `queryStyle: \"generic-category\"` sin frase de fecha (`hasDatePhrase: false`), dentro de los casos \"same-category\" (candidatas del MISMO `merchant_category`, casos A/B del generador), sigue siendo un caso donde NINGUNA señal discrimina entre candidatas para ninguno de los dos arms -- confirmado en la tabla de cruce arriba (Recall@1 ~nivel de azar para ambos arms en esa celda puntual). Esto es una limitación real y esperada del DATASET (las candidatas comparten rubro a propósito), no del matcher: agregar `merchant_category` como señal (ver tabla cross-category vs. same-category) no puede ayudar ahí porque todas las candidatas tienen la MISMA categoría -- no hay nada que la señal pueda rechazar. Donde la señal nueva SÍ aporta es en el caso \"cross-category\" (`crossCategory: true`, \"Caso C\" del generador): candidatas de rubro DISTINTO, mismo monto aproximado, sin fecha -- ver esa fila de la tabla para el aporte real medido."
   );
   lines.push(
     `- \`DEFAULT_TAU\`/\`DEFAULT_MARGIN_TAU\` se fijaron por inspección de los ${designSetExcludedCount} casos \`designSet: true\`, no por una búsqueda de grilla sobre el set completo -- reevaluar si este reporte sugiere otro valor.`

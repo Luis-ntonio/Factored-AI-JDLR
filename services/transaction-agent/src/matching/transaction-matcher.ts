@@ -97,11 +97,24 @@ function cosineSimilarity(a: readonly number[], b: readonly number[]): number {
 
 /** Pesos documentados del modelo -- auditables a mano, ajustados en el
  * harness de evaluación (`scripts/evaluate-transaction-matcher.ts`), nunca
- * a ojo. Suman 1 cuando las 3 señales están disponibles; si falta alguna
- * (ej. sin `merchant`), el peso se redistribuye proporcionalmente entre
- * las señales disponibles -- nunca penaliza a una candidata por un dato
- * que el cliente simplemente no mencionó. */
-const MODEL_WEIGHTS = { merchant: 0.5, amount: 0.3, date: 0.2 };
+ * a ojo. Suman 1 cuando las 4 señales están disponibles; si falta alguna
+ * (ej. sin `merchant`, o la candidata sin `merchant_category`), el peso se
+ * redistribuye proporcionalmente entre las señales disponibles -- nunca
+ * penaliza a una candidata por un dato que el cliente simplemente no
+ * mencionó, ni por un dato que la transacción simplemente no tiene.
+ *
+ * `category` (docs/STATUS.md, fase "Simulador de conversaciones" ->
+ * reparos propuestos, item #4): similitud de embeddings entre lo que el
+ * cliente escribió (`query.merchant`, sea un nombre de comercio real o una
+ * frase genérica de rubro) y `candidate.merchant_category` -- reusa el
+ * MISMO `embed` ya inyectado, nunca un keyword/taxonomía nueva. Rechaza
+ * decoys de un rubro distinto (ej. consulta de streaming vs. candidata de
+ * supermercado) incluso cuando el monto es parecido -- NO discrimina entre
+ * candidatas del MISMO rubro (ver `generate-matcher-fixtures.ts`, los casos
+ * "Caso A"/"Caso B" comparten `merchant_category` a propósito, por eso ese
+ * cruce sigue sin señal real -- `crossCategory: true` en "Caso C" es el que
+ * mide el aporte real de esta señal). */
+const MODEL_WEIGHTS = { merchant: 0.4, amount: 0.25, date: 0.15, category: 0.2 };
 
 export interface EmbedFn {
   (text: string): Promise<readonly number[] | null>;
@@ -110,13 +123,20 @@ export interface EmbedFn {
 export async function modelScore(candidate: Transaction, query: MatchQuery, embed: EmbedFn): Promise<number> {
   const terms: Array<{ weight: number; value: number }> = [];
 
-  if (query.merchant && candidate.merchant_name) {
-    const [queryEmbedding, candidateEmbedding] = await Promise.all([embed(query.merchant), embed(candidate.merchant_name)]);
-    if (queryEmbedding && candidateEmbedding) {
-      const similarity = cosineSimilarity(queryEmbedding, candidateEmbedding);
+  if (query.merchant) {
+    const [queryEmbedding, merchantEmbedding, categoryEmbedding] = await Promise.all([
+      embed(query.merchant),
+      candidate.merchant_name ? embed(candidate.merchant_name) : Promise.resolve(null),
+      candidate.merchant_category ? embed(candidate.merchant_category) : Promise.resolve(null),
+    ]);
+
+    if (queryEmbedding && merchantEmbedding) {
       // Cosine similarity real puede ser negativa; se recorta a [0,1] para
       // que el score final quede siempre en un rango interpretable.
-      terms.push({ weight: MODEL_WEIGHTS.merchant, value: Math.max(0, similarity) });
+      terms.push({ weight: MODEL_WEIGHTS.merchant, value: Math.max(0, cosineSimilarity(queryEmbedding, merchantEmbedding)) });
+    }
+    if (queryEmbedding && categoryEmbedding) {
+      terms.push({ weight: MODEL_WEIGHTS.category, value: Math.max(0, cosineSimilarity(queryEmbedding, categoryEmbedding)) });
     }
   }
 

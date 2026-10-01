@@ -72,6 +72,18 @@ export interface MatcherFixtureCase {
   queryStyle: "exact-merchant" | "generic-category";
   hasDatePhrase: boolean;
   designSet: boolean;
+  /**
+   * true SOLO para los casos nuevos "Caso C" (ver `buildCrossCategoryCase`)
+   * -- candidatas de `merchant_category` DISTINTA entre sí, a propósito
+   * para medir el aporte real de la señal de categoría agregada a
+   * `modelScore` (docs/STATUS.md, fase "Simulador de conversaciones" ->
+   * reparos propuestos, item #4). `false` (default) en todos los casos
+   * "Caso A"/"Caso B" preexistentes -- esos siguen con candidatas del
+   * MISMO `MerchantGroup` (misma categoría) a propósito, así que la señal
+   * de categoría NUNCA discrimina ahí por construcción del dataset, no por
+   * un bug -- ver docstring de `buildCase` de más abajo para el detalle.
+   */
+  crossCategory: boolean;
   query: MatcherFixtureQuery;
   candidates: Transaction[];
   targetTransactionId: string;
@@ -111,6 +123,11 @@ function randInt(min: number, maxInclusive: number): number {
 
 interface MerchantGroup {
   category: string;
+  /** `Transaction.merchant_category` real a asignar a las candidatas de
+   * este grupo -- mismo vocabulario de etiqueta que `mock-core-banking.ts`
+   * ya usa para transacciones reales (ej. "Food & Beverage", "Online
+   * Retail"), para que el dataset sintético sea consistente con el real. */
+  categoryLabel: string;
   genericPhrase: { es: string; pt: string };
   merchants: string[];
 }
@@ -118,26 +135,31 @@ interface MerchantGroup {
 const MERCHANT_GROUPS: MerchantGroup[] = [
   {
     category: "streaming",
+    categoryLabel: "Streaming",
     genericPhrase: { es: "un cobro de un servicio de streaming", pt: "uma cobrança de um serviço de streaming" },
     merchants: ["Netflix", "Disney Plus", "HBO Max", "Spotify"],
   },
   {
     category: "delivery",
+    categoryLabel: "Food & Beverage",
     genericPhrase: { es: "un pedido de comida a domicilio", pt: "um pedido de comida por aplicativo" },
     merchants: ["Rappi", "Uber Eats", "Didi Food"],
   },
   {
     category: "retail",
+    categoryLabel: "Online Retail",
     genericPhrase: { es: "una compra en una tienda en línea", pt: "uma compra em uma loja online" },
     merchants: ["Amazon MX", "Mercado Libre", "Liverpool"],
   },
   {
     category: "transport",
+    categoryLabel: "Transportation",
     genericPhrase: { es: "un viaje en una app de transporte", pt: "uma corrida em um aplicativo de transporte" },
     merchants: ["Uber", "Didi", "Cabify"],
   },
   {
     category: "supermarket",
+    categoryLabel: "Groceries",
     genericPhrase: { es: "una compra de supermercado", pt: "uma compra de supermercado" },
     merchants: ["Walmart", "Éxito", "Carrefour"],
   },
@@ -205,12 +227,13 @@ function nextTxnId(): string {
 function buildTransaction(params: {
   customerId: string;
   merchantName: string;
+  merchantCategory: string;
   amount: number;
   currency: Currency;
   country: Country;
   dateIso: string;
 }): Transaction {
-  const { customerId, merchantName, amount, currency, country, dateIso } = params;
+  const { customerId, merchantName, merchantCategory, amount, currency, country, dateIso } = params;
   return {
     transaction_id: nextTxnId(),
     transaction_date: dateIso,
@@ -222,6 +245,7 @@ function buildTransaction(params: {
     currency,
     channel: "Web",
     merchant_name: merchantName,
+    merchant_category: merchantCategory,
     transaction_country: country,
     transaction_status: "Approved",
     is_fraud: false,
@@ -306,6 +330,7 @@ function buildCase(params: {
     const txn = buildTransaction({
       customerId,
       merchantName: merchantsForCase[i],
+      merchantCategory: group.categoryLabel,
       amount: sharedAmount,
       currency,
       country,
@@ -336,6 +361,7 @@ function buildCase(params: {
     queryStyle,
     hasDatePhrase,
     designSet,
+    crossCategory: false,
     query: {
       merchant: queryMerchant,
       disputedAmount,
@@ -345,6 +371,82 @@ function buildCase(params: {
     },
     candidates,
     targetTransactionId,
+  };
+}
+
+/**
+ * "Caso C": candidatas de `merchant_category` DISTINTA entre sí (una del
+ * grupo real del cliente, una decoy de OTRO grupo elegido al azar) --
+ * aísla el aporte real de la señal de categoría agregada a `modelScore`
+ * (docs/STATUS.md, fase "Simulador de conversaciones" -> reparos
+ * propuestos, item #4). A propósito: consulta SIEMPRE `generic-category`
+ * (sin nombrar comercio) y SIN frase de fecha -- el baseline (sin señal de
+ * categoría) queda en nivel de azar por diseño; lo que se mide es si el
+ * modelo (con la señal nueva) hace mejor que azar rechazando la decoy de
+ * otra categoría, monto casi idéntico adrede (el cliente "recuerda
+ * aproximadamente" el monto, mismo criterio que `buildCase`).
+ */
+function buildCrossCategoryCase(params: {
+  idSuffix: string;
+  customerId: string;
+  language: LanguageCode;
+  designSet: boolean;
+}): MatcherFixtureCase {
+  const { idSuffix, customerId, language, designSet } = params;
+
+  const targetGroup = pick(MERCHANT_GROUPS);
+  let decoyGroup = pick(MERCHANT_GROUPS);
+  while (decoyGroup.category === targetGroup.category) {
+    decoyGroup = pick(MERCHANT_GROUPS);
+  }
+
+  const country = pick(COUNTRIES);
+  const currency = CURRENCY_BY_COUNTRY[country];
+  const sharedAmount = Math.round((randInt(50, 2000) + rng()) * 100) / 100;
+
+  const targetTxn = buildTransaction({
+    customerId,
+    merchantName: pick(targetGroup.merchants),
+    merchantCategory: targetGroup.categoryLabel,
+    amount: sharedAmount,
+    currency,
+    country,
+    dateIso: isoDateDaysFrom(REFERENCE_DATE_ISO, -randInt(1, 40)),
+  });
+  const decoyTxn = buildTransaction({
+    customerId,
+    merchantName: pick(decoyGroup.merchants),
+    merchantCategory: decoyGroup.categoryLabel,
+    amount: sharedAmount,
+    currency,
+    country,
+    dateIso: isoDateDaysFrom(REFERENCE_DATE_ISO, DECOY_OFFSET_DAYS),
+  });
+
+  const candidates = rng() < 0.5 ? [targetTxn, decoyTxn] : [decoyTxn, targetTxn];
+
+  // Monto "recordado" con la misma perturbación ±1-3% que `buildCase` --
+  // nunca siempre exacto.
+  const disputedAmount = Math.round(sharedAmount * (1 + (rng() < 0.5 ? -1 : 1) * (0.01 + rng() * 0.02)) * 100) / 100;
+
+  return {
+    id: `matcher-${idSuffix}`,
+    customerId,
+    language,
+    ambiguityLevel: "2-candidates",
+    queryStyle: "generic-category",
+    hasDatePhrase: false,
+    designSet,
+    crossCategory: true,
+    query: {
+      merchant: targetGroup.genericPhrase[language],
+      disputedAmount,
+      transactionDateText: null,
+      referenceDateIso: REFERENCE_DATE_ISO,
+      language,
+    },
+    candidates,
+    targetTransactionId: targetTxn.transaction_id,
   };
 }
 
@@ -380,6 +482,18 @@ function main(): void {
         ambiguityLevel: "3-plus-candidates",
         queryStyle: custIdx % 2 === 0 ? "generic-category" : "exact-merchant",
         hasDatePhrase: custIdx % 3 !== 0,
+        designSet,
+      })
+    );
+
+    // Caso C: cross-category -- mide el aporte real de la señal de
+    // categoría agregada a modelScore (ver docstring de
+    // buildCrossCategoryCase). Nuevo, no reemplaza A/B.
+    cases.push(
+      buildCrossCategoryCase({
+        idSuffix: `${customerId}-c`,
+        customerId,
+        language,
         designSet,
       })
     );
