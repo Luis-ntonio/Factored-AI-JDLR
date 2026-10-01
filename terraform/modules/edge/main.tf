@@ -38,8 +38,14 @@ resource "aws_apigatewayv2_api" "this" {
 
   cors_configuration {
     allow_origins = var.cors_allow_origins
-    allow_methods = ["POST", "OPTIONS"]
-    allow_headers = ["content-type"]
+    # GET agregado para las 2 rutas del dashboard de admin (GET
+    # /admin/conversations, GET /admin/conversations/{caseId}/trace) --
+    # antes solo POST/OPTIONS (chat/auth). x-admin-key agregado por el
+    # mismo motivo: un header custom (no "simple") SIEMPRE dispara
+    # preflight CORS, y sin declararlo acá el navegador bloquea la
+    # respuesta real aunque el Lambda la devuelva bien.
+    allow_methods = ["POST", "GET", "OPTIONS"]
+    allow_headers = ["content-type", "x-admin-key"]
     max_age       = 300
   }
 
