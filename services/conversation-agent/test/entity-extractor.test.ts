@@ -81,3 +81,48 @@ describe("extractEntities — campos de disputa", () => {
     expect(entities.dispute_reason).not.toBe("other");
   });
 });
+
+/**
+ * Regresión de 2 gaps reales encontrados por el simulador de conversaciones
+ * (docs/STATUS.md, fase "Simulador de conversaciones"): ningún patrón
+ * reconocía CURP (document_type real de 2 de los 4 clientes mock), y un DNI
+ * escrito con el separador de miles convencional ("28.456.789") no matcheaba
+ * por exigir dígitos contiguos. Ambos repro directos con el mensaje real que
+ * los disparó.
+ */
+describe("extractEntities — document_id/document_type", () => {
+  it("extrae un CURP mexicano completo ('Mi CURP es LOTM900101MDFPRR09')", () => {
+    const entities = extractEntities("Mi CURP es LOTM900101MDFPRR09.", "es");
+    expect(entities.document_id).toBe("LOTM900101MDFPRR09");
+    expect(entities.document_type).toBe("other");
+  });
+
+  it("extrae un DNI con puntos de miles ('Mi número de documento es 28.456.789')", () => {
+    const entities = extractEntities("Mi número de documento es 28.456.789.", "es");
+    expect(entities.document_id).toBe("28456789");
+    expect(entities.document_type).toBe("other");
+  });
+
+  it("sigue extrayendo un DNI etiquetado sin separadores ('Mi DNI es 28456789')", () => {
+    const entities = extractEntities("Mi DNI es 28456789", "es");
+    expect(entities.document_id).toBe("28456789");
+    expect(entities.document_type).toBe("DNI");
+  });
+
+  it("sigue extrayendo un DNI de 8 dígitos sin etiqueta ('Mi documento es el 28456789')", () => {
+    const entities = extractEntities("Mi documento es el 28456789", "es");
+    expect(entities.document_id).toBe("28456789");
+  });
+
+  it("sigue extrayendo un CPF con el formato típico brasileño", () => {
+    const entities = extractEntities("Meu CPF é 123.456.789-00", "pt");
+    expect(entities.document_id).toBe("12345678900");
+    expect(entities.document_type).toBe("CPF");
+  });
+
+  it("no extrae document_id de un mensaje sin ningún documento", () => {
+    const entities = extractEntities("No reconozco un cargo de 150 en mi tarjeta", "es");
+    expect(entities.document_id).toBeNull();
+    expect(entities.document_type).toBeNull();
+  });
+});

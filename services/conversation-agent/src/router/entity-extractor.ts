@@ -217,12 +217,25 @@ const EXISTING_CUSTOMER_FALSE: Record<LanguageCode, string[]> = {
 };
 
 // CPF: 11 dígitos, formato típico 000.000.000-00. DNI (referencia Perú): 8 dígitos.
-// Heurística deliberadamente simple — ver limitación "Data limitations" en docs/CONTRACTS.md:
-// no cubre todos los formatos de documento de LATAM (ej. cédula CO de 6-10 dígitos
-// se clasifica como "other" por ambigüedad con DNI).
+// CURP (México, 18 caracteres: 4 letras + 6 dígitos + 6 letras + 2 dígitos,
+// ej. "LOTM900101MDFPRR09") -- encontrado como gap real por el simulador de
+// conversaciones (docs/STATUS.md, fase "Simulador de conversaciones"): 2 de
+// los 4 clientes mock (María/Roberto) tienen CURP como document_type real, y
+// ningún patrón anterior lo reconocía -- un clarify pidiendo `document_id` a
+// esos clientes no tenía ninguna respuesta de texto libre que lo completara.
+// `DocumentType` (@banking-agent/shared) no tiene un valor "CURP" dedicado
+// -- se clasifica como "other", mismo criterio ya usado acá para cédula CO.
+// Heurística deliberadamente simple — ver limitación "Data limitations" en
+// docs/CONTRACTS.md: no cubre todos los formatos de documento de LATAM.
 const CPF_PATTERN = /\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b/;
+const CURP_PATTERN = /\b[A-Za-z]{4}\d{6}[A-Za-z]{6}\d{2}\b/;
 const DNI_PATTERN = /\b\d{8}\b/;
-const DOCUMENT_LABEL_PATTERN = /\b(cpf|dni|cédula|cedula|documento|c\.?c\.?)\D{0,10}(\d{5,14})\b/i;
+// Grupo de dígitos permite separadores comunes (puntos/guiones/espacios,
+// ej. "28.456.789" -- el otro gap real encontrado por el simulador: el
+// patrón anterior exigía dígitos contiguos, y un DNI escrito con el
+// separador de miles convencional nunca matcheaba) -- se normalizan
+// (se les quitan) antes de validar longitud/usar el valor.
+const DOCUMENT_LABEL_PATTERN = /\b(cpf|dni|cédula|cedula|documento|curp|c\.?c\.?)\D{0,10}(\d[\d.\- ]{3,13}\d)\b/i;
 
 function extractDocument(text: string, language: LanguageCode): { id: string | null; type: DocumentType | null } {
   const cpfMatch = text.match(CPF_PATTERN);
@@ -230,14 +243,22 @@ function extractDocument(text: string, language: LanguageCode): { id: string | n
     return { id: cpfMatch[0].replace(/[.\-]/g, ""), type: "CPF" };
   }
 
+  const curpMatch = text.match(CURP_PATTERN);
+  if (curpMatch) {
+    return { id: curpMatch[0].toUpperCase(), type: "other" };
+  }
+
   const labelMatch = text.match(DOCUMENT_LABEL_PATTERN);
   if (labelMatch) {
     const label = labelMatch[1].toLowerCase();
-    const digits = labelMatch[2];
-    if (label === "cpf") return { id: digits, type: "CPF" };
-    if (label === "dni") return { id: digits, type: "DNI" };
-    if (label.startsWith("c")) return { id: digits, type: "CC" };
-    return { id: digits, type: "other" };
+    const digits = labelMatch[2].replace(/[.\-\s]/g, "");
+    if (digits.length >= 5 && digits.length <= 14) {
+      if (label === "cpf") return { id: digits, type: "CPF" };
+      if (label === "dni") return { id: digits, type: "DNI" };
+      if (label === "curp") return { id: digits, type: "other" };
+      if (label.startsWith("c")) return { id: digits, type: "CC" };
+      return { id: digits, type: "other" };
+    }
   }
 
   const dniMatch = text.match(DNI_PATTERN);
