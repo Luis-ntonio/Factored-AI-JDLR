@@ -14,6 +14,15 @@ Escalate**, con **información de productos de crédito y elegibilidad**
 infraestructura. Español/portugués. Infraestructura AWS real desplegada
 vía Terraform — no un mock desechable.
 
+**🔗 Demo en vivo: https://d1vi5rhqqyd97a.cloudfront.net** (chat real,
+sin login requerido para `product_info`/`faq`; `eligibility_check`/
+`dispute_unrecognized_charge` piden iniciar sesión -- cliente mock de
+prueba: documento `LOTM900101MDFPRR09`, nombre `María Fernanda`, apellido
+`López Torres`; ver los otros 3 clientes mock en
+`services/transaction-agent/src/data/mock-core-banking.ts`). Infraestructura
+real desplegada en AWS (CloudFront + API Gateway + Step Functions + Lambda
++ DynamoDB + Bedrock), no un mock local.
+
 > Este proyecto se construyó en 10 días como respuesta al
 > "Factored AI & Data Hackathon 2026" (`hacka-info/Factored AI & Data
 > Hackathon 2026.pdf`, contexto local no versionado). El pivot de

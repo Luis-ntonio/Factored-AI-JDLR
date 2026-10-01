@@ -221,6 +221,67 @@ contra el endpoint real. Frontend: login de plataforma separado del chat
 (`apps/web/src/auth/AuthContext.tsx`), verificado con `claude-in-chrome`
 contra el build real desplegado en CloudFront.
 
+### Fairness (requisito explícito de la página pública del hackathon: "privacy, explainability, fairness, reliability, scalability")
+
+No está en los 6 puntos originales del PDF tal como se mapearon arriba,
+pero la página pública del hackathon (factored.ai/careers/ai-data-
+hackathon) sí la nombra explícitamente como production concern -- se
+documenta acá en vez de dejarla fuera por no encajar en el mapeo
+original.
+
+**Lo que SÍ es defendible, verificado leyendo el código real (no
+asumido):**
+
+- `computeEligibilityScore` (`services/transaction-agent/src/scoring/
+  compute-score.ts`) usa ÚNICAMENTE `employment_status`, el ratio
+  `requested_amount/income`, `existing_customer`, y el monto solicitado --
+  NUNCA `gender`/`date_of_birth`/`marital_status`/`education_level`/
+  `city`/`state`/`country`/`detected_accent`, aunque todos esos campos
+  existen en el registro real de `Customer`
+  (`mock-core-banking.ts`). No es un acto de fe: ninguno de esos campos
+  aparece referenciado en el archivo de la fórmula.
+- `policies.yaml` nunca condiciona una decisión por ningún atributo
+  demográfico -- las únicas condiciones de "quién sos" son `context.role`
+  (`anonimo`/`cliente`/`cliente_estrella`, derivado de `segment`, un dato
+  comercial de producto, no demográfico) y los campos de negocio de
+  arriba.
+
+**Asimetrías reales, ya conocidas, nombradas acá bajo el paraguas de
+fairness en vez de quedar dispersas:**
+
+- **Por segmento comercial**: `cliente_estrella` (segmento `Premium`)
+  tolera un umbral de disputa 2x más alto
+  (`star_dispute_high_risk_amount_threshold`) antes de requerir revisión
+  humana -- una decisión de negocio simulada y documentada (ver
+  `escalate-dispute-amount-over-threshold-star` en `policies.yaml`), pero
+  nunca se auditó si esto produce un impacto dispar real (ej. si
+  `Premium` correlaciona con mayor ingreso, el sistema es sistemáticamente
+  más permisivo con los clientes de mayor poder adquisitivo). Esto es una
+  pregunta de negocio legítima, no necesariamente un defecto -- pero
+  quedó sin responder en este checkpoint.
+- **Por idioma**: la heurística de detección de documento (`entity-
+  extractor.ts`, ver también la fase "Reparos propuestos" de
+  `docs/STATUS.md`) reconoce DNI/CC/CURP con distinta cobertura según el
+  idioma/formato -- confirmado asimétrico entre ES/PT (un documento de 8
+  dígitos se clasifica `DNI` en español pero `other` en portugués, por
+  diseño correcto del formato, pero confirma que la heurística no es
+  simétrica).
+- **El clasificador de fraude entrenado** (`ml/`, fase ML) se evaluó
+  contra el dataset completo real (4.4M transacciones, 0.098% fraude) con
+  métricas agregadas (PR-AUC, precision/recall) -- nunca se desagregó por
+  ningún atributo demográfico del cliente para chequear si el (pobre)
+  desempeño del modelo es parejo entre grupos o concentrado en alguno.
+
+**Lo que NO se hizo, explícito:** ninguna prueba formal de impacto
+dispar (ej. comparar tasas reales de AUTO/CLARIFY/ESCALATE por segmento,
+idioma, o cualquier atributo del cliente sobre el dataset real), ningún
+threshold de fairness definido de antemano, y ninguna revisión de que el
+guardrail de Bedrock (`policy-agent/src/bedrock/guardrail.ts`) razone de
+forma consistente entre clientes equivalentes en todo menos un atributo
+demográfico. Señalado acá como limitación real, no resuelta en este
+checkpoint -- candidato claro para una fase futura si el proyecto
+continúa más allá del hackathon.
+
 ## Ser honestos sobre lo que falta (checklist de cierre)
 
 - **Capacity limits** — hasta dónde escala lo construido (throughput,

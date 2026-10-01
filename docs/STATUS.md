@@ -1493,3 +1493,49 @@ en Git Bash.
 - `docs/EVALUATION-DISPUTE-MATCHER.md` regenerado con datos reales de
   Bedrock (no una corrida sin embeddings) -- mismo criterio de rigor que
   el resto de este documento.
+
+## Fase Revisión final contra la página pública del hackathon (2026-10-01)
+
+El usuario pidió una última revisión cruzando el repo contra
+`factored.ai/careers/ai-data-hackathon` (FAQs/entregables/rubric
+públicos, distinto del PDF original que ya se mapeó en
+`docs/EVALUATION-CRITERIA.md`). Encontró 2 gaps de cumplimiento reales
+(no de calidad de código) y 2 gaps de documentación baratos:
+
+1. **Nombre de repo no cumplía el formato exigido**
+   (`factored-hackathon-2026-[team-name]`) -- el repo se llamaba
+   `Factored-AI-JDLR`. Renombrado a `factored-hackathon-2026-jdlr`
+   (`gh repo rename`), remote local actualizado
+   (`git remote set-url`), verificado que no quedó ninguna referencia
+   hardcodeada al nombre/URL viejo en el repo.
+2. **Faltan 2 de los 4 entregables obligatorios**: deck de 4-6 slides y
+   video pitch (máx. 3 min) -- NO implementados en esta fase a pedido
+   explícito del usuario ("arma todo, menos los slides y el video, eso
+   dejalo para después de terminar todo"). Quedan como pendiente
+   explícito, no resuelto.
+3. **El link del demo en vivo no estaba destacado** donde un evaluador lo
+   buscaría -- solo aparecía una vez, enterrado en
+   `EVALUATION-CRITERIA.md` como evidencia de un test. Agregado de forma
+   prominente en el `README.md` (primeras líneas), con credenciales de
+   prueba reales (María Fernanda, CUST-0001) para que un evaluador pueda
+   probar `eligibility_check`/`dispute_unrecognized_charge` sin tener que
+   leer código primero. Verificado real (`curl` contra la URL, HTTP 200).
+4. **"Fairness" (production concern nombrado explícitamente en la página
+   pública, ausente del mapeo original del PDF)** no tenía ninguna
+   sección dedicada. Agregada en `docs/EVALUATION-CRITERIA.md`: lo
+   defendible verificado leyendo código (`computeEligibilityScore` nunca
+   usa atributos demográficos, solo señales de negocio), las asimetrías
+   reales ya conocidas nombradas bajo este paraguas (umbral 2x por
+   segmento Premium sin auditar impacto dispar, asimetría de detección
+   de documento por idioma, clasificador de fraude nunca desagregado por
+   atributo demográfico), y qué NO se hizo (ninguna prueba formal de
+   impacto dispar).
+
+### Estado final de esta fase
+
+- Repo renombrado y verificado en GitHub real (`gh repo view`).
+- README y `docs/EVALUATION-CRITERIA.md` actualizados, sin tocar código
+  de ningún servicio -- esta fase es 100% documentación/compliance,
+  cero riesgo de regresión.
+- Pendiente explícito, a propósito: deck de slides + video pitch (los 2
+  entregables obligatorios restantes), para una fase posterior.
