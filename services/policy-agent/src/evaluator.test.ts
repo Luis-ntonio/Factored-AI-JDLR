@@ -362,6 +362,76 @@ describe("policy-agent evaluator", () => {
     expect(result.winningRuleId).toBe("escalate-dispute-amount-over-threshold-star");
   });
 
+  it("dispute_unrecognized_charge con context.priorDisputeCount >= config.dispute_repeat_complainer_threshold -> ESCALATE (reincidente)", () => {
+    const threshold = Number(policy.config.dispute_repeat_complainer_threshold);
+    expect(threshold).toBeGreaterThan(0);
+    const input: UnderstandOutput = {
+      intent: "dispute_unrecognized_charge",
+      language: "es",
+      entities: {
+        ...emptyEntities(),
+        product_type: "credit_card",
+        document_id: "12345678",
+        disputed_amount: 100,
+        merchant: "Netflix",
+        transaction_date: null,
+      },
+      missing_fields: [],
+      context: baseContext({ priorDisputeCount: threshold }),
+    };
+
+    const result = evaluatePreAction(input, policy);
+    expect(result.decision).toBe("ESCALATE");
+    // También matchea auto-dispute-complete (monto bajo, resto completo),
+    // pero ESCALATE gana por "más conservador gana".
+    expect(result.matchedRules.map((m) => m.id)).toContain("auto-dispute-complete");
+    expect(result.matchedRules.map((m) => m.id)).toContain("escalate-dispute-repeat-complainer");
+    expect(result.winningRuleId).toBe("escalate-dispute-repeat-complainer");
+  });
+
+  it("dispute_unrecognized_charge con priorDisputeCount por debajo del umbral -> AUTO, nunca escala por reincidencia", () => {
+    const threshold = Number(policy.config.dispute_repeat_complainer_threshold);
+    const input: UnderstandOutput = {
+      intent: "dispute_unrecognized_charge",
+      language: "es",
+      entities: {
+        ...emptyEntities(),
+        product_type: "credit_card",
+        document_id: "12345678",
+        disputed_amount: 100,
+        merchant: "Netflix",
+        transaction_date: null,
+      },
+      missing_fields: [],
+      context: baseContext({ priorDisputeCount: threshold - 1 }),
+    };
+
+    const result = evaluatePreAction(input, policy);
+    expect(result.decision).toBe("AUTO");
+    expect(result.matchedRules.map((m) => m.id)).not.toContain("escalate-dispute-repeat-complainer");
+  });
+
+  it("dispute_unrecognized_charge con priorDisputeCount: null (fallo de infra) -> nunca escala a ciegas por esta regla", () => {
+    const input: UnderstandOutput = {
+      intent: "dispute_unrecognized_charge",
+      language: "es",
+      entities: {
+        ...emptyEntities(),
+        product_type: "credit_card",
+        document_id: "12345678",
+        disputed_amount: 100,
+        merchant: "Netflix",
+        transaction_date: null,
+      },
+      missing_fields: [],
+      context: baseContext({ priorDisputeCount: null }),
+    };
+
+    const result = evaluatePreAction(input, policy);
+    expect(result.decision).toBe("AUTO");
+    expect(result.matchedRules.map((m) => m.id)).not.toContain("escalate-dispute-repeat-complainer");
+  });
+
   it.each(["anonimo", undefined] as const)(
     "eligibility_check con datos completos pero role=%s -> CLARIFY (login), no AUTO",
     (role) => {

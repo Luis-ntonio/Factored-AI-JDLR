@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
-import { GetCommand, PutCommand } from "@aws-sdk/lib-dynamodb";
+import { GetCommand, PutCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
 import { ConversationStateStore } from "../src/context/state-store";
 import { buildUnderstandOutput } from "../src/context/context-manager";
 import { emptyEntities } from "@banking-agent/shared";
@@ -120,5 +120,109 @@ describe("buildUnderstandOutput — fallback de Reliability", () => {
       expect.arrayContaining(["income", "employment_status", "requested_amount", "document_id", "existing_customer"])
     );
     expect(output.missing_fields).not.toContain("product_type");
+  });
+});
+
+describe("ConversationStateStore.countPastDisputeCases", () => {
+  it("cuenta solo los STATE#latest con lastIntent=dispute_unrecognized_charge, vía el GSI by-customer", async () => {
+    const docClient = makeMockDocClient(async (cmd) => {
+      expect(cmd).toBeInstanceOf(QueryCommand);
+      const input = (cmd as QueryCommand).input;
+      expect(input.IndexName).toBe("by-customer");
+      expect(input.ExpressionAttributeValues?.[":g"]).toBe("CUSTOMER#cust-1");
+      return {
+        Items: [
+          { caseId: "case-old-1" },
+          { caseId: "case-old-2" },
+        ],
+      };
+    });
+    const store = new ConversationStateStore({ tableName: "t", docClient, maxRetries: 1, baseDelayMs: 1 });
+
+    const result = await store.countPastDisputeCases("cust-1", "case-current");
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value).toBe(2);
+  });
+
+  it("pagina con ExclusiveStartKey/LastEvaluatedKey hasta agotar todas las páginas", async () => {
+    let call = 0;
+    const docClient = makeMockDocClient(async () => {
+      call += 1;
+      if (call === 1) return { Items: [{ caseId: "case-old-1" }], LastEvaluatedKey: { pk: "x" } };
+      return { Items: [{ caseId: "case-old-2" }] };
+    });
+    const store = new ConversationStateStore({ tableName: "t", docClient, maxRetries: 1, baseDelayMs: 1 });
+
+    const result = await store.countPastDisputeCases("cust-1", "case-current");
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value).toBe(2);
+    expect(call).toBe(2);
+  });
+
+  it("DynamoDB no disponible -> {ok: false}, nunca lanza", async () => {
+    const docClient = makeMockDocClient(async () => {
+      throw new Error("down");
+    });
+    const store = new ConversationStateStore({ tableName: "t", docClient, maxRetries: 0, baseDelayMs: 1 });
+
+    const result = await store.countPastDisputeCases("cust-1", "case-current");
+
+    expect(result.ok).toBe(false);
+  });
+});
+
+describe("buildUnderstandOutput — context.priorDisputeCount", () => {
+  it("customerId conocido: usa el conteo real devuelto por countPastDisputeCases", async () => {
+    const docClient = makeMockDocClient(async (cmd) => {
+      if (cmd instanceof GetCommand) return { Item: undefined };
+      if (cmd instanceof QueryCommand) return { Items: [{ caseId: "case-old-1" }, { caseId: "case-old-2" }] };
+      return {};
+    });
+    const store = new ConversationStateStore({ tableName: "t", docClient, maxRetries: 1, baseDelayMs: 1 });
+
+    const output = await buildUnderstandOutput(
+      { caseId: "case-4", customerId: "cust-2", messageId: "msg-4", message: "No reconozco un cargo de 100", role: "cliente" },
+      store
+    );
+
+    expect(output.context.priorDisputeCount).toBe(2);
+  });
+
+  it("customerId null (anónimo): priorDisputeCount es null, nunca consulta el GSI", async () => {
+    const send = vi.fn(async (cmd: unknown) => {
+      if (cmd instanceof GetCommand) return { Item: undefined };
+      return {};
+    });
+    const docClient = { send } as unknown as DynamoDBDocumentClient;
+    const store = new ConversationStateStore({ tableName: "t", docClient, maxRetries: 1, baseDelayMs: 1 });
+
+    const output = await buildUnderstandOutput(
+      { caseId: "case-5", customerId: null, messageId: "msg-5", message: "No reconozco un cargo de 100", role: "anonimo" },
+      store
+    );
+
+    expect(output.context.priorDisputeCount).toBeNull();
+    expect(send).not.toHaveBeenCalledWith(expect.any(QueryCommand));
+  });
+
+  it("fallo del conteo de reincidencia: priorDisputeCount es null, pero NUNCA marca degraded (señal opcional, no core)", async () => {
+    const docClient = makeMockDocClient(async (cmd) => {
+      if (cmd instanceof GetCommand) return { Item: undefined };
+      if (cmd instanceof QueryCommand) throw new Error("gsi down");
+      return {};
+    });
+    const store = new ConversationStateStore({ tableName: "t", docClient, maxRetries: 0, baseDelayMs: 1 });
+
+    const output = await buildUnderstandOutput(
+      { caseId: "case-6", customerId: "cust-3", messageId: "msg-6", message: "No reconozco un cargo de 100", role: "cliente" },
+      store
+    );
+
+    expect(output.context.priorDisputeCount).toBeNull();
+    expect(output.context.degraded).toBe(false);
   });
 });

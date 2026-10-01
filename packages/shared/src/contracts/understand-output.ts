@@ -389,6 +389,20 @@ export interface UnderstandContext {
    * se hubiera mandado nada.
    */
   selectedTransactionId?: string;
+
+  /**
+   * Cantidad de cases PREVIOS (distintos del actual) del mismo `customerId`
+   * con `lastIntent = "dispute_unrecognized_charge"`, dentro de la ventana
+   * de retención real de case-store (TTL, ver `state-store.ts`) -- señal de
+   * reincidencia para `policies.yaml` (`escalate-dispute-repeat-
+   * complainer`). `null` si no se pudo calcular (customerId desconocido
+   * antes de login, o fallo de DynamoDB) -- NUNCA se fuerza a `0`, para que
+   * la regla de policy-agent (operador `gte`, nunca verdadero contra
+   * `null`) simplemente no dispare en vez de asumir "sin reincidencia" ante
+   * un fallo real de infraestructura. Opcional por el mismo motivo que
+   * `role` (fixtures de test de otros servicios que no ejercitan esto).
+   */
+  priorDisputeCount?: number | null;
 }
 
 /**

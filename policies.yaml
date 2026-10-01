@@ -216,6 +216,16 @@ config:
   # el mismo turno.
   star_dispute_high_risk_amount_threshold: 30000
 
+  # Umbral de reincidencia para `escalate-dispute-repeat-complainer` más
+  # abajo: cantidad de disputas PREVIAS (cases distintos del actual, mismo
+  # customerId) a partir de la cual se exige revisión humana para la
+  # disputa ACTUAL, sin importar su monto individual. `2` = la 3ra disputa
+  # en la ventana de retención real de case-store (TTL, ver
+  # `services/conversation-agent/src/context/state-store.ts`) ya escala.
+  # Placeholder razonable para la demo (igual criterio que el resto de este
+  # bloque `config`), a validar con negocio real.
+  dispute_repeat_complainer_threshold: 2
+
   # Zona límite de score de elegibilidad (CONFIRMADO, ver sección post_action
   # más abajo — services/transaction-agent lee estos dos valores directamente
   # de este archivo en runtime, mismo mecanismo js-yaml que este evaluador,
@@ -369,30 +379,43 @@ rules:
       no solo gatea el login -- un cliente_estrella con un monto entre
       ambos umbrales sigue en AUTO/CLARIFY normal en vez de escalar acá.
 
-  # NOTA — `is_repeat_complainer` (reclamante repetido) NO se implementa como
-  # regla acá. Evaluación explícita (Tarea 4, pivot 2026-09-27): el flujo de
-  # negocio del EDA (hacka-info/EDA_LATAM_Bank_resumen.md) pide escalar
-  # cuando "el cliente reclama seguido", pero hoy NO existe ninguna señal
-  # barata para eso en el contrato real:
-  #   - `UnderstandContext.historyTurns`
-  #     (packages/shared/src/contracts/understand-output.ts) solo cuenta
-  #     turnos DENTRO del MISMO `caseId` — no un conteo de disputas pasadas
-  #     del mismo cliente a través de MÚLTIPLES cases en el tiempo.
-  #   - Calcular reincidencia real requeriría una query nueva contra DynamoDB
-  #     por `customerId` (ej. contar cases previos con
-  #     `intent = dispute_unrecognized_charge` en una ventana de tiempo) que
-  #     NO existe todavía — es trabajo de infra/context-manager, fuera del
-  #     scope de esta tarea (que es 100% config-driven sobre el contrato ya
-  #     emitido por conversation-agent, sin agregar queries nuevas).
-  #   - No se inventa un campo nuevo en `Entities`/`UnderstandContext` para
-  #     esto acá (eso requeriría coordinar con conversation-agent, fuera de
-  #     scope de policy-agent).
-  # Conclusión: esta regla queda EXPLÍCITAMENTE PENDIENTE, documentada como
-  # limitación conocida (ver también sección final de este archivo), no como
-  # un descuido. Cuando exista esa señal (ej. un campo
-  # `context.priorDisputeCount` producido por un context-manager extendido),
-  # agregar una regla `escalate-dispute-repeat-complainer` con el mismo
-  # patrón que las demás reglas ESCALATE de este bloque.
+  # RESUELTO (docs/STATUS.md, fase "Simulador de conversaciones" ->
+  # reparos propuestos): `is_repeat_complainer` quedó explícitamente
+  # pendiente en el pivot 2026-09-27 (Tarea 4) por falta de una señal
+  # barata de reincidencia cross-case. Esa señal ahora existe:
+  # `context.priorDisputeCount` (`UnderstandContext`,
+  # packages/shared/src/contracts/understand-output.ts) -- cuenta cases
+  # PREVIOS del mismo `customerId` con `lastIntent =
+  # dispute_unrecognized_charge`, vía un `Query` nuevo sobre el GSI
+  # `by-customer` que YA existe (`ConversationStateStore.
+  # countPastDisputeCases`, services/conversation-agent/src/context/
+  # state-store.ts) -- ningún schema/tabla/GSI nuevo, mismo criterio de
+  # reuso que el resto del proyecto. `null` (nunca forzado a 0) si no se
+  # pudo calcular (customerId desconocido o fallo de DynamoDB) -- la regla
+  # de abajo simplemente no matchea en ese caso (`gte` nunca es true contra
+  # `null`), nunca escala a ciegas por un fallo de infraestructura.
+
+  - id: escalate-dispute-repeat-complainer
+    stage: pre_action
+    when:
+      all:
+        - field: intent
+          op: eq
+          value: dispute_unrecognized_charge
+        - field: context.priorDisputeCount
+          op: gte
+          value_ref: dispute_repeat_complainer_threshold
+    decision: ESCALATE
+    reason: >
+      El cliente ya tiene `context.priorDisputeCount` disputa(s) previa(s)
+      registrada(s) (cases distintos del actual, mismo `customerId`,
+      dentro de la ventana de retención real de case-store) -- igual o por
+      encima del umbral configurable
+      `config.dispute_repeat_complainer_threshold`. Un reclamante
+      reincidente amerita revisión humana antes de continuar con la
+      investigación automática de ESTE cargo, independientemente de su
+      monto individual (criterio de negocio del EDA real,
+      hacka-info/EDA_LATAM_Bank_resumen.md).
 
   # --- CLARIFY ------------------------------------------------------------
 
@@ -1093,11 +1116,10 @@ dispute_post_action_contract_status: CONFIRMED
 #   transaction-agent -> policy-agent (post_action) sobre disputas en
 #   producción — eso es trabajo de devops en una fase posterior, no se da
 #   por hecho ni se implementa acá.
-# - `is_repeat_complainer` (reincidencia de reclamos) NO tiene regla en este
-#   archivo, a propósito. `UnderstandContext.historyTurns` solo cuenta turnos
-#   dentro del MISMO `caseId`, no disputas pasadas del mismo cliente a través
-#   de múltiples cases en el tiempo — esa señal requeriría una query nueva
-#   contra DynamoDB por `customerId` que no existe todavía (trabajo de
-#   infra/context-manager, fuera de esta tarea). Ver el comentario extenso
-#   junto a `escalate-dispute-amount-over-threshold` para el detalle completo
-#   de esta evaluación.
+# - `is_repeat_complainer` (reincidencia de reclamos): RESUELTO -- ver regla
+#   `escalate-dispute-repeat-complainer` arriba y
+#   `ConversationStateStore.countPastDisputeCases`
+#   (services/conversation-agent/src/context/state-store.ts). Limitación que
+#   SÍ queda: la ventana de reincidencia es toda la retención real de
+#   case-store (TTL, hoy 30 días) -- no hay una ventana de tiempo propia/más
+#   corta configurable para esta regla en particular.

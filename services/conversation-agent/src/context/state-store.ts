@@ -1,5 +1,5 @@
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient, GetCommand, PutCommand } from "@aws-sdk/lib-dynamodb";
+import { DynamoDBDocumentClient, GetCommand, PutCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
 import { Entities, Intent, LanguageCode } from "@banking-agent/shared";
 
 /**
@@ -178,6 +178,55 @@ export class ConversationStateStore {
             },
           })
         );
+      },
+      this.maxRetries,
+      this.baseDelayMs
+    );
+  }
+
+  /**
+   * Cuenta cases PREVIOS (distintos de `excludeCaseId`) del mismo
+   * `customerId` cuyo `lastIntent` sea `dispute_unrecognized_charge` --
+   * señal de reincidencia para `policies.yaml`
+   * (`escalate-dispute-repeat-complainer`, ver docs/STATUS.md, fase
+   * "Simulador de conversaciones" -> reparos propuestos). Reusa el GSI
+   * `by-customer` que YA existe (`gsi1pk = CUSTOMER#<customerId>`, puesto en
+   * CADA item de este customer -- tanto `STATE#latest` como `MSG#...`,
+   * ver docstring del módulo) -- nunca un GSI/tabla nuevos.
+   *
+   * `FilterExpression` (no `KeyConditionExpression`) para `sk`/`lastIntent`/
+   * exclusión del case actual -- aceptable a esta escala (un cliente real
+   * tiene, como mucho, unos pocos cases dentro de la ventana de retención
+   * de 30 días del TTL), mismo criterio ya aceptado para `Scan` en
+   * `admin-agent`/`retrieval-agent`.
+   */
+  async countPastDisputeCases(customerId: string, excludeCaseId: string): Promise<DdbResult<number>> {
+    return withRetry(
+      async () => {
+        let count = 0;
+        let lastEvaluatedKey: Record<string, unknown> | undefined;
+
+        do {
+          const result = await this.docClient.send(
+            new QueryCommand({
+              TableName: this.tableName,
+              IndexName: "by-customer",
+              KeyConditionExpression: "gsi1pk = :g",
+              FilterExpression: "sk = :state AND lastIntent = :intent AND caseId <> :excludeCaseId",
+              ExpressionAttributeValues: {
+                ":g": `CUSTOMER#${customerId}`,
+                ":state": "STATE#latest",
+                ":intent": "dispute_unrecognized_charge",
+                ":excludeCaseId": excludeCaseId,
+              },
+              ExclusiveStartKey: lastEvaluatedKey,
+            })
+          );
+          count += result.Items?.length ?? 0;
+          lastEvaluatedKey = result.LastEvaluatedKey as Record<string, unknown> | undefined;
+        } while (lastEvaluatedKey);
+
+        return count;
       },
       this.maxRetries,
       this.baseDelayMs

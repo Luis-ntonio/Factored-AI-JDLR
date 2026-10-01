@@ -9,7 +9,7 @@ import {
   UserRole,
   emptyEntities,
 } from "@banking-agent/shared";
-import { ConversationStateItem, ConversationStateStore } from "./state-store";
+import { ConversationStateItem, ConversationStateStore, DdbResult } from "./state-store";
 import { UnderstandBackendDeps, resolveUnderstanding } from "../understanding/understand-backend";
 
 export interface BuildUnderstandOutputInput {
@@ -154,7 +154,20 @@ export async function buildUnderstandOutput(
   let turnCount = 0;
   let previousIntent: Intent | null = null;
 
-  const readResult = await store.getState(caseId);
+  // Corre en paralelo con la lectura de estado -- señal INDEPENDIENTE y
+  // puramente aditiva (`UnderstandContext.priorDisputeCount`, ver
+  // docstring en el contrato compartido), nunca marca `degraded` si falla:
+  // a diferencia de `existingEntities`/`previousIntent` (core del merge de
+  // este turno), esta solo alimenta una regla ESCALATE opcional de
+  // policy-agent -- un fallo acá se trata como "sin señal de reincidencia"
+  // (`null`), nunca como un turno degradado.
+  async function getPriorDisputeCount(): Promise<DdbResult<number | null>> {
+    if (!customerId) return { ok: true, value: null };
+    return store.countPastDisputeCases(customerId, caseId);
+  }
+
+  const [readResult, priorDisputeResult] = await Promise.all([store.getState(caseId), getPriorDisputeCount()]);
+
   if (readResult.ok) {
     if (readResult.value) {
       existingEntities = readResult.value.entities;
@@ -165,6 +178,8 @@ export async function buildUnderstandOutput(
     degraded = true;
     degradedReason = "dynamodb_read_failed";
   }
+
+  const priorDisputeCount = priorDisputeResult.ok ? priorDisputeResult.value : null;
 
   const previousMissingFields = previousIntent ? computeMissingFields(previousIntent, existingEntities) : [];
   const effectiveIntent = resolveEffectiveIntent(
@@ -222,6 +237,7 @@ export async function buildUnderstandOutput(
       historyTurns: turnCount,
       role,
       selectedTransactionId: selectedTransactionId ?? undefined,
+      priorDisputeCount,
     },
   };
 }
