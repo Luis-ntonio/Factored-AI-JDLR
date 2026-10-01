@@ -37,7 +37,32 @@ locals {
     },
     var.tags
   )
+
+  # Simulador de conversaciones -- MISMO cálculo de ARNs de Bedrock que
+  # `terraform/modules/agent/main.tf` (copiado literal, ese local no es
+  # importable entre módulos de Terraform): nunca `Resource = "*"`, scoped
+  # al inference profile + al foundation model subyacente en las 3
+  # regiones que cubre el enrutamiento cross-region del prefijo "us."
+  # (verificado empíricamente, ver README.md de modules/agent).
+  bedrock_inference_profile_arn = "arn:aws:bedrock:${var.bedrock_region}:${data.aws_caller_identity.current.account_id}:inference-profile/${var.bedrock_model_id}"
+
+  bedrock_foundation_model_arns = [
+    for region in ["us-east-1", "us-east-2", "us-west-2"] :
+    "arn:aws:bedrock:${region}::foundation-model/${replace(var.bedrock_model_id, "us.", "")}"
+  ]
+
+  bedrock_resource_arns = concat(
+    [local.bedrock_inference_profile_arn],
+    local.bedrock_foundation_model_arns,
+  )
+
+  bedrock_ssm_parameter_arns = [
+    "arn:aws:ssm:${var.bedrock_region}:${data.aws_caller_identity.current.account_id}:parameter${var.bedrock_model_id_ssm_parameter_name}",
+    "arn:aws:ssm:${var.bedrock_region}:${data.aws_caller_identity.current.account_id}:parameter${var.bedrock_region_ssm_parameter_name}",
+  ]
 }
+
+data "aws_caller_identity" "current" {}
 
 data "aws_iam_policy_document" "lambda_assume_role" {
   statement {
@@ -75,9 +100,11 @@ resource "aws_iam_role_policy_attachment" "admin_agent_basic_logs" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
-# Mínimo privilegio: SOLO dynamodb:Scan (nunca escritura) sobre la tabla
-# case-store -- admin-agent es de solo LECTURA, nunca muta el estado de
-# ninguna conversación real.
+# dynamodb:Scan (listConversations, solo LECTURA sobre conversaciones
+# reales de clientes) + dynamodb:PutItem/GetItem (store de corridas de
+# simulación, items propios "SIM#<runId>", nunca tocan items de clientes) +
+# dynamodb:Query sobre el GSI by-customer (listSimulationRuns,
+# gsi1pk="SIMULATIONS") -- misma tabla, nunca una tabla nueva.
 resource "aws_iam_role_policy" "admin_agent_dynamodb" {
   name = "${local.name_prefix}-admin-agent-dynamodb"
   role = aws_iam_role.admin_agent.id
@@ -86,9 +113,63 @@ resource "aws_iam_role_policy" "admin_agent_dynamodb" {
     Version = "2012-10-17"
     Statement = [
       {
+        Sid      = "ScanConversations"
         Effect   = "Allow"
         Action   = ["dynamodb:Scan"]
         Resource = [var.case_store_table_arn]
+      },
+      {
+        Sid      = "ReadWriteSimulationRuns"
+        Effect   = "Allow"
+        Action   = ["dynamodb:PutItem", "dynamodb:GetItem"]
+        Resource = [var.case_store_table_arn]
+      },
+      {
+        Sid      = "QuerySimulationRunsByIndex"
+        Effect   = "Allow"
+        Action   = ["dynamodb:Query"]
+        Resource = [var.case_store_table_by_customer_index_arn]
+      }
+    ]
+  })
+}
+
+# bedrock:InvokeModel/Converse scoped al inference profile elegido (mismo
+# patrón/ARNs que modules/agent) -- usado por el simulador de usuario
+# (services/admin-agent/src/simulation/user-simulator.ts) para generar el
+# próximo mensaje del cliente sintético, nunca para decidir pass/fail (eso
+# es una comparación estructural en run-simulation.ts).
+resource "aws_iam_role_policy" "admin_agent_bedrock" {
+  name = "${local.name_prefix}-admin-agent-bedrock"
+  role = aws_iam_role.admin_agent.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["bedrock:InvokeModel", "bedrock:Converse"]
+        Resource = local.bedrock_resource_arns
+      }
+    ]
+  })
+}
+
+# ssm:GetParameter sobre los MISMOS 2 parámetros de config de Bedrock que
+# ya leen conversation-agent/policy-agent (module.secrets) -- sin
+# kms:Decrypt porque esos 2 parámetros son String plano, no SecureString
+# (ver terraform/modules/secrets/variables.tf).
+resource "aws_iam_role_policy" "admin_agent_bedrock_ssm" {
+  name = "${local.name_prefix}-admin-agent-bedrock-ssm"
+  role = aws_iam_role.admin_agent.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["ssm:GetParameter"]
+        Resource = local.bedrock_ssm_parameter_arns
       }
     ]
   })
@@ -160,6 +241,17 @@ resource "aws_lambda_function" "admin_agent" {
       CASE_STORE_TABLE_NAME        = var.case_store_table_name
       STATE_MACHINE_LOG_GROUP_NAME = var.state_machine_log_group_name
       ADMIN_API_KEY_PARAM_NAME     = var.admin_api_key_parameter_name
+      # Simulador de conversaciones.
+      BEDROCK_MODEL_ID_PARAM_NAME  = var.bedrock_model_id_ssm_parameter_name
+      BEDROCK_REGION_PARAM_NAME    = var.bedrock_region_ssm_parameter_name
+      CHAT_API_URL                 = var.chat_api_endpoint
+      AUTH_LOGIN_URL               = var.auth_login_endpoint
+      # Literal (no `aws_lambda_function.admin_agent.function_name` -- un
+      # recurso no puede referenciar su propio atributo dentro de su propio
+      # bloque): MISMA expresión que `function_name` arriba, para el
+      # self-invoke asíncrono del worker (`POST /admin/simulations` en
+      # services/admin-agent/src/index.ts).
+      ADMIN_AGENT_FUNCTION_NAME = "${local.name_prefix}-admin-agent"
     }
   }
 
@@ -171,5 +263,30 @@ resource "aws_lambda_function" "admin_agent" {
     aws_iam_role_policy.admin_agent_dynamodb,
     aws_iam_role_policy.admin_agent_logs,
     aws_iam_role_policy.admin_agent_ssm,
+    aws_iam_role_policy.admin_agent_bedrock,
+    aws_iam_role_policy.admin_agent_bedrock_ssm,
   ]
+}
+
+# lambda:InvokeFunction scoped a SU PROPIO ARN -- self-invoke asíncrono
+# (`InvocationType: "Event"`) del worker de simulación, disparado por la
+# propia ruta `POST /admin/simulations` ya autenticada (nunca expuesto por
+# API Gateway). No es una dependencia circular: esta policy referencia el
+# ARN YA RESUELTO del Lambda de arriba, declarada DESPUÉS de él -- mismo
+# patrón que cualquier recurso referenciando su propio ARN en una policy
+# adjunta aparte.
+resource "aws_iam_role_policy" "admin_agent_self_invoke" {
+  name = "${local.name_prefix}-admin-agent-self-invoke"
+  role = aws_iam_role.admin_agent.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["lambda:InvokeFunction"]
+        Resource = [aws_lambda_function.admin_agent.arn]
+      }
+    ]
+  })
 }

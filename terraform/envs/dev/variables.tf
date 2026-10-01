@@ -171,3 +171,28 @@ variable "enable_analytics_pipeline" {
   type        = bool
   default     = false
 }
+
+# Simulador de conversaciones (module.admin) -- el worker llama a POST
+# /chat y POST /auth/login REALES (mismo endpoint público que ya usa
+# apps/web/src/api.ts/auth/api.ts), nunca invoca la Step Function directo.
+#
+# Literal, NO derivado de `module.edge.api_endpoint`: module.edge YA
+# depende de module.admin (`admin_route_lambda_invoke_arn`), así que
+# derivar estas 2 URLs del output de module.edge crearía un ciclo
+# (admin -> edge -> admin). Mismo criterio que ya usa el frontend
+# (`apps/web/src/api.ts`/`auth/api.ts`: el ID de la API Gateway es estable
+# una vez creada, así que se hardcodea con un comentario explicando el
+# motivo) -- acá el default ya apunta al API Gateway real de este
+# ambiente; actualizar manualmente si alguna vez se recrea la API
+# (`aws_apigatewayv2_api.this` con un ID nuevo).
+variable "chat_api_url" {
+  description = "URL completa de POST /chat -- ver comentario de arriba sobre por qué es un literal y no module.edge.api_endpoint."
+  type        = string
+  default     = "https://kr49s6ij26.execute-api.us-east-1.amazonaws.com/chat"
+}
+
+variable "auth_login_url" {
+  description = "URL completa de POST /auth/login -- mismo motivo/API Gateway que chat_api_url."
+  type        = string
+  default     = "https://kr49s6ij26.execute-api.us-east-1.amazonaws.com/auth/login"
+}

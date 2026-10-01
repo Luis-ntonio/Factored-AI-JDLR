@@ -176,3 +176,30 @@ resource "aws_apigatewayv2_route" "admin_trace" {
   route_key = var.admin_trace_route_key
   target    = "integrations/${aws_apigatewayv2_integration.admin[0].id}"
 }
+
+# Simulador de conversaciones -- 3 rutas más, MISMA integración/Lambda
+# (admin-agent despacha por rawPath + método HTTP, ver
+# services/admin-agent/src/index.ts).
+resource "aws_apigatewayv2_route" "admin_simulations_create" {
+  count = var.attach_admin_route ? 1 : 0
+
+  api_id    = aws_apigatewayv2_api.this.id
+  route_key = var.admin_simulations_create_route_key
+  target    = "integrations/${aws_apigatewayv2_integration.admin[0].id}"
+}
+
+resource "aws_apigatewayv2_route" "admin_simulations_list" {
+  count = var.attach_admin_route ? 1 : 0
+
+  api_id    = aws_apigatewayv2_api.this.id
+  route_key = var.admin_simulations_list_route_key
+  target    = "integrations/${aws_apigatewayv2_integration.admin[0].id}"
+}
+
+resource "aws_apigatewayv2_route" "admin_simulations_detail" {
+  count = var.attach_admin_route ? 1 : 0
+
+  api_id    = aws_apigatewayv2_api.this.id
+  route_key = var.admin_simulations_detail_route_key
+  target    = "integrations/${aws_apigatewayv2_integration.admin[0].id}"
+}

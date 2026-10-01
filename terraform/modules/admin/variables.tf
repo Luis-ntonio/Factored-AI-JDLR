@@ -15,9 +15,21 @@ variable "tags" {
 }
 
 variable "lambda_timeout" {
-  description = "Timeout (segundos) del Lambda admin-agent."
+  description = <<-EOT
+    Timeout (segundos) del Lambda admin-agent. Subido de 15s a 180s con el
+    simulador de conversaciones: la invocación ASÍNCRONA del worker
+    (`lambda:InvokeFunction`, `InvocationType: Event`, ver
+    `services/admin-agent/src/simulation/run-simulation.ts`) corre hasta 6
+    turnos reales contra el pipeline desplegado (p95 medido ~10s/turno,
+    `docs/USAGE-ANALYTICS.md`) más la llamada a Bedrock del simulador de
+    usuario entre turnos -- 15s alcanzaba para las 2 rutas de solo lectura
+    originales, nunca para este worker. Las rutas de API Gateway
+    (`/admin/conversations*`, `POST /admin/simulations`) siguen devolviendo
+    en milisegundos de todas formas -- este timeout solo importa de verdad
+    para la invocación asíncrona del worker.
+  EOT
   type        = number
-  default     = 15
+  default     = 180
 }
 
 variable "lambda_memory_size" {
@@ -66,5 +78,42 @@ variable "admin_api_key_parameter_name" {
 
 variable "admin_api_key_parameter_arn" {
   description = "ARN del mismo parámetro -- scoping exacto de la IAM policy ssm:GetParameter de admin-agent."
+  type        = string
+}
+
+# --- Simulador de conversaciones ------------------------------------------
+
+variable "case_store_table_by_customer_index_arn" {
+  description = "ARN del GSI `by-customer` de la tabla case-store (module.data) -- scoping exacto de dynamodb:Query para listar corridas de simulación (gsi1pk=\"SIMULATIONS\", ver services/admin-agent/src/simulation/store.ts). Reusa el MISMO GSI que ya existe, nunca uno nuevo."
+  type        = string
+}
+
+variable "bedrock_model_id" {
+  description = "Model ID de Bedrock a invocar para el simulador de usuario -- MISMO valor que ya usan conversation-agent/policy-agent (module.secrets.bedrock_model_id), nunca un modelo distinto."
+  type        = string
+}
+
+variable "bedrock_region" {
+  description = "Región de Bedrock -- MISMO valor que ya usan conversation-agent/policy-agent."
+  type        = string
+}
+
+variable "bedrock_model_id_ssm_parameter_name" {
+  description = "Nombre del parámetro SSM con el model id de Bedrock (module.secrets.bedrock_model_id_parameter_name) -- MISMO parámetro que ya leen conversation-agent/policy-agent, nunca uno nuevo."
+  type        = string
+}
+
+variable "bedrock_region_ssm_parameter_name" {
+  description = "Nombre del parámetro SSM con la región de Bedrock (module.secrets.bedrock_region_parameter_name)."
+  type        = string
+}
+
+variable "chat_api_endpoint" {
+  description = "URL completa de POST /chat -- el worker del simulador llama a este endpoint PÚBLICO real, exactamente como lo hace apps/web/src/api.ts, nunca invoca la Step Function directo. Literal en terraform/envs/dev/variables.tf (var.chat_api_url) -- derivarlo de module.edge.api_endpoint crearía un ciclo (module.edge ya depende de module.admin para admin_route_lambda_invoke_arn)."
+  type        = string
+}
+
+variable "auth_login_endpoint" {
+  description = "URL completa de POST /auth/login -- el worker del simulador loguea de verdad con los datos del perfil mock elegido, igual que un browser real. Mismo motivo de literal que chat_api_endpoint."
   type        = string
 }

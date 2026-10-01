@@ -111,6 +111,26 @@ variable "admin_trace_route_key" {
   default     = "GET /admin/conversations/{caseId}/trace"
 }
 
+# 3 rutas del simulador de conversaciones -- MISMA integración/Lambda que
+# las de arriba (admin-agent despacha por rawPath + método HTTP).
+variable "admin_simulations_create_route_key" {
+  description = "Route key HTTP para disparar una simulación nueva, usado solo si attach_admin_route = true."
+  type        = string
+  default     = "POST /admin/simulations"
+}
+
+variable "admin_simulations_list_route_key" {
+  description = "Route key HTTP para listar corridas de simulación, usado solo si attach_admin_route = true."
+  type        = string
+  default     = "GET /admin/simulations"
+}
+
+variable "admin_simulations_detail_route_key" {
+  description = "Route key HTTP para el detalle de una corrida de simulación puntual, usado solo si attach_admin_route = true."
+  type        = string
+  default     = "GET /admin/simulations/{runId}"
+}
+
 variable "cors_allow_origins" {
   description = <<-EOT
     Lista de origins permitidos en el `cors_configuration` nativo del HTTP

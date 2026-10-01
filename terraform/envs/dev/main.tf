@@ -154,14 +154,26 @@ module "admin" {
   environment  = var.environment
   tags         = var.tags
 
-  case_store_table_name = module.data.table_name
-  case_store_table_arn  = module.data.table_arn
+  case_store_table_name                  = module.data.table_name
+  case_store_table_arn                   = module.data.table_arn
+  case_store_table_by_customer_index_arn = "${module.data.table_arn}/index/by-customer"
 
   state_machine_log_group_name = module.orchestration.state_machine_log_group_name
   state_machine_log_group_arn  = module.orchestration.state_machine_log_group_arn
 
   admin_api_key_parameter_name = module.secrets.admin_api_key_parameter_name
   admin_api_key_parameter_arn  = module.secrets.admin_api_key_parameter_arn
+
+  # Simulador de conversaciones -- MISMOS 2 parámetros SSM de Bedrock que ya
+  # consumen conversation-agent/policy-agent (module.secrets), nunca
+  # parámetros nuevos. chat_api_url/auth_login_url son literales (ver
+  # terraform/envs/dev/variables.tf, evita un ciclo con module.edge).
+  bedrock_model_id                    = var.bedrock_model_id
+  bedrock_region                      = var.bedrock_region
+  bedrock_model_id_ssm_parameter_name = module.secrets.bedrock_model_id_parameter_name
+  bedrock_region_ssm_parameter_name   = module.secrets.bedrock_region_parameter_name
+  chat_api_endpoint                   = var.chat_api_url
+  auth_login_endpoint                 = var.auth_login_url
 }
 
 module "edge" {
