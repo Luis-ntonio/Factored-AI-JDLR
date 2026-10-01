@@ -1,13 +1,18 @@
-# AI-First Banking Agent — transaction-dispute intake + credit-product info & eligibility
+# AI-First Banking Agent — disputas de cargo resueltas automáticamente, sin escalar todo a un humano
 
-Sistema de customer service bancario (no un chatbot de demo) que implementa
-el pipeline **Understand → Decide → Act → Verify → Escalate** para DOS
-flujos sobre la misma infraestructura: **disputa de cargo no reconocido**
-(`dispute_unrecognized_charge` — foco principal desde el pivot de
-2026-09-27, justificado con el EDA real del dataset del hackathon) e
-**información de productos de crédito y elegibilidad** (`eligibility_check`
-— flujo original, sigue intacto). Soporte español/portugués.
-Infraestructura AWS real desplegada vía Terraform — no un mock desechable.
+Un agente que decide si un cargo no reconocido puede resolverse solo o
+necesita un humano — usando matching real de transacciones (embeddings,
+no un substring), en vez de la respuesta por defecto de la mayoría de
+bots bancarios: escalar cualquier cosa ambigua. Verificado no solo con
+tests unitarios sino con un simulador de conversaciones que juega el rol
+de distintos clientes reales y expone fallas que un test aislado no
+encuentra (ver `docs/STATUS.md`, fase "Simulador de conversaciones").
+
+Construido sobre el pipeline **Understand → Decide → Act → Verify →
+Escalate**, con **información de productos de crédito y elegibilidad**
+(`eligibility_check`) como segundo flujo de soporte sobre la misma
+infraestructura. Español/portugués. Infraestructura AWS real desplegada
+vía Terraform — no un mock desechable.
 
 > Este proyecto se construyó en 10 días como respuesta al
 > "Factored AI & Data Hackathon 2026" (`hacka-info/Factored AI & Data
