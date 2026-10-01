@@ -1334,3 +1334,175 @@ body {
   max-height: 260px;
   overflow-y: auto;
 }
+
+/* --- Simulador de conversaciones -- vista "Simulaciones" ------------- */
+
+.admin-tabs {
+  display: flex;
+  gap: 4px;
+  margin-top: 10px;
+}
+
+.admin-tab {
+  border: none;
+  background: none;
+  color: #fff;
+  opacity: 0.65;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+}
+
+.admin-tab:hover {
+  opacity: 0.85;
+}
+
+.admin-tab-active {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.admin-sim-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.admin-sim-form h2 {
+  margin: 0;
+  font-size: 13px;
+  color: var(--color-navy-ink);
+}
+
+.admin-sim-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--color-navy-ink-muted);
+}
+
+.admin-sim-field select {
+  padding: 8px 10px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  background: var(--color-surface-raised);
+}
+
+.admin-sim-form button {
+  padding: 8px 14px;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: var(--color-terracotta);
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.admin-sim-form button:hover {
+  background: var(--color-terracotta-deep);
+}
+
+.admin-sim-form button:disabled {
+  background: var(--color-disabled);
+  cursor: not-allowed;
+}
+
+.admin-badge-pending {
+  background: var(--color-amber-caution-surface);
+  color: var(--color-amber-caution);
+}
+
+.admin-badge-pass {
+  background: var(--color-emerald-surface);
+  color: var(--color-emerald);
+}
+
+.admin-badge-fail {
+  background: var(--color-crimson-surface);
+  color: var(--color-crimson);
+}
+
+.admin-sim-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.admin-sim-expected {
+  font-size: 13px;
+  color: var(--color-navy-ink-muted);
+  margin: 0;
+}
+
+.admin-sim-turns {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.admin-sim-turn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+}
+
+.admin-sim-turn-index {
+  font-family: monospace;
+  color: var(--color-navy-ink-muted);
+}
+
+.admin-sim-turn-message {
+  flex: 1;
+  color: var(--color-navy-ink);
+}
+
+.admin-sim-status-ok {
+  background: var(--color-emerald-surface);
+  color: var(--color-emerald);
+}
+
+.admin-sim-status-clarify {
+  background: var(--color-amber-caution-surface);
+  color: var(--color-amber-caution);
+}
+
+.admin-sim-status-escalate {
+  background: var(--color-teal-surface);
+  color: var(--color-teal-deep);
+}
+
+.admin-sim-status-unavailable {
+  background: var(--color-crimson-surface);
+  color: var(--color-crimson);
+}
+
+.admin-sim-view-trace {
+  align-self: flex-start;
+  padding: 8px 14px;
+  border: 1px solid var(--color-teal);
+  border-radius: var(--radius-pill);
+  background: none;
+  color: var(--color-teal-deep);
+  font-weight: 600;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.admin-sim-view-trace:hover {
+  background: var(--color-teal-surface);
+}
