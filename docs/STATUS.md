@@ -1611,3 +1611,71 @@ reales como para disparar la regla.
 - **Qué NO se hizo (deliberado, decisión de producto pendiente)**: el
   loop "¿se resolvió lo de la última vez?" -- requiere un canal nuevo
   (humano -> sistema) que no existe hoy.
+
+## Fase Clientes reales del dataset (2026-10-02)
+
+Pregunta del usuario (continuación de la fase anterior): el harness de
+evaluación del matcher es 100% sintético -- ¿no convendría usar la data
+real? Investigación previa (ver conversación, no en este archivo porque
+no cambió código): la tabla `complaints` real (67k filas) YA fue evaluada
+y descartada como fuente de verdad en el EDA original (`docs/
+EDA-LATAM-BANK.md`: "0 de 44,570 productos reclamados pertenecen al
+cliente que reclama"), así que no hay texto de reclamo real confiable
+para el harness. El usuario entonces pidió algo más directo y más
+valioso: loguearse en el chat EN VIVO con un cliente REAL del dataset
+(no sintético) que tenga transacciones reales, para poder disputar una
+transacción que el dataset YA marca como fraude real -- y, dado que son
+personas reales, confirmó que quiere publicarlo para que los jueces lo
+prueben (decisión explícita del usuario, ver AskUserQuestion de esta
+fase) más un ajuste para que el código de verificación por email (login
+alternativo) no le llegue a la persona real.
+
+**Selección real** (DuckDB sobre `ml/data/{customers,products,
+transactions}.parquet`, el mismo dataset real que usa `ml/`, 2026-10-02):
+2 clientes `customer_status: "Active"` con al menos una tarjeta de
+crédito activa y al menos una compra real ya marcada `is_fraud: true` --
+Ana Angélica Romero López (México, segmento Plus, 2 tarjetas) y Eduardo
+Giménez Vega (Argentina, segmento Basic, 1 tarjeta), 22 transacciones
+reales en total (`transaction_type: "Purchase"` con `merchant_name` real
+-- 1 transacción real descartada a propósito por no tener comercio,
+ver docstring de `real-customers.ts`).
+
+**Único campo sobrescrito: `email`** -- mismo motivo y mismo patrón ya
+usado para CUST-0001 (María): nunca se le manda un código de
+verificación real a una persona real ajena al equipo sin su
+consentimiento, aunque el resto de sus datos sí esté autorizado para
+este ejercicio (dataset compartido explícitamente para este uso). Esto
+también responde la pregunta del "bypass" de email: no hace falta un
+mecanismo nuevo -- el login PRINCIPAL (`POST /auth/login`, el que usa el
+form de login del chat) nunca necesitó email para empezar (solo
+documento + nombre + apellido, síncrono); el override de `email` solo
+importa para el login ALTERNATIVO por OTP (`services/auth-agent/src/
+otp`), y ya apunta al mismo inbox real del equipo que María.
+
+**Implementación**: `services/transaction-agent/src/data/
+real-customers.ts` (nuevo) -- `REAL_CUSTOMERS`/`REAL_PRODUCTS`/
+`REAL_TRANSACTIONS`, mismos tipos que `mock-core-banking.ts` (columnas
+calcadas 1:1 del dataset real, ya verificado contra el mismo data
+dictionary que originó esos tipos). `mock-core-banking.ts` renombra sus
+arrays originales a `MOCK_*` (privados) y re-exporta `CUSTOMERS`/
+`PRODUCTS`/`TRANSACTIONS` como la unión de ambos -- aditivo puro, cero
+cambios en `static-transaction-repository.ts` ni en ningún consumidor
+(mismo nombre exportado). 6 tests nuevos de integridad referencial
+(`real-customers.test.ts`) -- encontraron y corrigieron 1 transacción
+real sin `merchant_name` antes de llegar a producción (la excluyeron, no
+la inventaron).
+
+README actualizado con las 2 credenciales reales + un mensaje de disputa
+sugerido para cada una (contra la transacción real ya marcada fraude).
+
+### Estado final de esta fase
+
+- 104 tests en `transaction-agent` (+6 nuevos), monorepo completo (9
+  workspaces) en verde. `tsc --noEmit` limpio.
+- Requiere `terraform apply` del usuario antes de estar en vivo (cambió
+  el código fuente de los Lambdas, mismo mecanismo de rebuild automático
+  por `sources_hash` que cualquier cambio de código -- ningún `.tf`
+  cambió).
+- Pendiente, fuera de alcance de esta fase: extender el catálogo del
+  simulador de conversaciones (`services/admin-agent/src/simulation/
+  profiles.ts`) con estos 2 clientes reales -- no se pidió, no se hizo.

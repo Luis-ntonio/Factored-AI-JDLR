@@ -23,6 +23,22 @@ prueba: documento `LOTM900101MDFPRR09`, nombre `María Fernanda`, apellido
 real desplegada en AWS (CloudFront + API Gateway + Step Functions + Lambda
 + DynamoDB + Bedrock), no un mock local.
 
+**Clientes REALES del dataset del hackathon** (no inventados, ver
+`services/transaction-agent/src/data/real-customers.ts` para la
+procedencia exacta) -- para probar una disputa contra una transacción que
+el propio dataset real ya marca como fraude (`is_fraud: true`), no una
+simulada:
+
+| Documento | Nombre | Apellido | Probá disputar |
+| --- | --- | --- | --- |
+| `39168655` | `Ana Angélica` | `Romero López` | "No reconozco un cargo de $173.01 en Cine Premium" |
+| `55181511` | `Eduardo` | `Giménez Vega` | "No reconozco un cargo de $139278.93 en Restaurante El Buen Sabor" |
+
+Único dato sobrescrito respecto al dataset real: el email (nunca se le
+manda un código de verificación real a una persona real ajena al equipo,
+aunque el resto de sus datos sí esté autorizado para este ejercicio --
+ver docstring de `real-customers.ts`).
+
 > Este proyecto se construyó en 10 días como respuesta al
 > "Factored AI & Data Hackathon 2026" (`hacka-info/Factored AI & Data
 > Hackathon 2026.pdf`, contexto local no versionado). El pivot de
