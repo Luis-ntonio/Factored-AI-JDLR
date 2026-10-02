@@ -48,6 +48,14 @@
  * trabajo es de la fase de Act + infra -- no se implementa acá.
  */
 
+// Import de VALORES (no solo tipos) -- `real-customers.ts` solo importa
+// TIPOS de acá (`import type`), así que esto no es una dependencia
+// circular real en runtime, solo a nivel de tipos (TypeScript la resuelve
+// sin problema). Ver docstring de ese archivo para la procedencia real
+// (DuckDB sobre `ml/data/*.parquet`, el mismo dataset real del
+// hackathon).
+import { REAL_CUSTOMERS, REAL_PRODUCTS, REAL_TRANSACTIONS } from "./real-customers";
+
 // --- Customers ---------------------------------------------------------
 
 export type DocumentType = "DNI" | "CURP" | "CC" | "CE" | "Passport";
@@ -207,9 +215,10 @@ export interface Transaction {
 
 export const SOURCE_ID = "mock_core_banking_v1";
 
-// --- Seed: 4 clientes --------------------------------------------------
+// --- Seed: 4 clientes de autoría (ver real-customers.ts para 2 más,
+// REALES del dataset del hackathon) --------------------------------------
 
-export const CUSTOMERS: readonly Customer[] = [
+const MOCK_CUSTOMERS: readonly Customer[] = [
   {
     customer_id: "CUST-0001",
     document_number: "LOTM900101MDFPRR09",
@@ -329,9 +338,11 @@ export const CUSTOMERS: readonly Customer[] = [
   },
 ] as const;
 
+export const CUSTOMERS: readonly Customer[] = [...MOCK_CUSTOMERS, ...REAL_CUSTOMERS];
+
 // --- Seed: productos (al menos una tarjeta por cliente) -------------------
 
-export const PRODUCTS: readonly Product[] = [
+const MOCK_PRODUCTS: readonly Product[] = [
   {
     product_id: "PROD-0001",
     customer_id: "CUST-0001",
@@ -430,6 +441,8 @@ export const PRODUCTS: readonly Product[] = [
   },
 ] as const;
 
+export const PRODUCTS: readonly Product[] = [...MOCK_PRODUCTS, ...REAL_PRODUCTS];
+
 // --- Seed: transacciones (6 por cliente, fechas recientes a 2026-09-27) ---
 //
 // Cada cliente tiene transacciones "disputables" (monto claro, comercio
@@ -439,7 +452,7 @@ export const PRODUCTS: readonly Product[] = [
 // extranjero, monto grande) para probar el camino de ESCALATE por sospecha
 // de fraude en la fase de Act futura.
 
-export const TRANSACTIONS: readonly Transaction[] = [
+const MOCK_TRANSACTIONS: readonly Transaction[] = [
   // --- CUST-0001 (María, México) — tarjeta de crédito PROD-0001 ----------
   {
     transaction_id: "TXN-000001",
@@ -964,3 +977,5 @@ export const TRANSACTIONS: readonly Transaction[] = [
     fraud_score: 1.4,
   },
 ] as const;
+
+export const TRANSACTIONS: readonly Transaction[] = [...MOCK_TRANSACTIONS, ...REAL_TRANSACTIONS];
