@@ -233,6 +233,68 @@ export class ConversationStateStore {
     );
   }
 
+  /**
+   * Hasta `limit` cases PREVIOS (distintos de `excludeCaseId`) del mismo
+   * `customerId`, más recientes primero -- "memoria" de cliente recurrente
+   * (ver docs/STATUS.md, fase "Memoria de cliente recurrente";
+   * `UnderstandContext.recentCases` en @banking-agent/shared). Mismo GSI
+   * `by-customer` y mismo criterio de `FilterExpression` aceptable a esta
+   * escala que `countPastDisputeCases` -- la diferencia es que acá se
+   * devuelven los items completos (`entities`/`lastIntent`/`updatedAt`),
+   * no solo un conteo.
+   *
+   * DynamoDB no ordena por `updatedAt` (no es parte de la key del GSI) --
+   * se ordena en memoria después de traer todos los items de este
+   * customer, aceptable al volumen real (TTL de 30 días acota cuántos
+   * cases puede tener un cliente acumulados).
+   */
+  async getRecentCasesForCustomer(
+    customerId: string,
+    excludeCaseId: string,
+    limit: number
+  ): Promise<DdbResult<ConversationStateItem[]>> {
+    return withRetry(
+      async () => {
+        const items: Record<string, unknown>[] = [];
+        let lastEvaluatedKey: Record<string, unknown> | undefined;
+
+        do {
+          const result = await this.docClient.send(
+            new QueryCommand({
+              TableName: this.tableName,
+              IndexName: "by-customer",
+              KeyConditionExpression: "gsi1pk = :g",
+              FilterExpression: "sk = :state AND caseId <> :excludeCaseId",
+              ExpressionAttributeValues: {
+                ":g": `CUSTOMER#${customerId}`,
+                ":state": "STATE#latest",
+                ":excludeCaseId": excludeCaseId,
+              },
+              ExclusiveStartKey: lastEvaluatedKey,
+            })
+          );
+          items.push(...((result.Items ?? []) as Record<string, unknown>[]));
+          lastEvaluatedKey = result.LastEvaluatedKey as Record<string, unknown> | undefined;
+        } while (lastEvaluatedKey);
+
+        const states: ConversationStateItem[] = items.map((item) => ({
+          caseId: item.caseId as string,
+          customerId: (item.customerId as string | null) ?? null,
+          entities: item.entities as Entities,
+          lastIntent: item.lastIntent as Intent,
+          lastLanguage: item.lastLanguage as LanguageCode,
+          turnCount: item.turnCount as number,
+          updatedAt: item.updatedAt as string,
+        }));
+
+        states.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+        return states.slice(0, limit);
+      },
+      this.maxRetries,
+      this.baseDelayMs
+    );
+  }
+
   async appendMessage(message: MessageItem): Promise<DdbResult<void>> {
     return withRetry(
       async () => {

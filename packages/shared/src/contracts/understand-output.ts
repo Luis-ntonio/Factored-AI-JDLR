@@ -403,6 +403,42 @@ export interface UnderstandContext {
    * `role` (fixtures de test de otros servicios que no ejercitan esto).
    */
   priorDisputeCount?: number | null;
+
+  /**
+   * Hasta 2 cases PREVIOS (distintos del actual) del mismo `customerId`,
+   * más recientes primero -- "memoria" de cliente recurrente (ver
+   * docs/STATUS.md, fase "Memoria de cliente recurrente"). A diferencia de
+   * `priorDisputeCount` (señal interna para una regla de policy-agent),
+   * este campo SÍ se expone en la respuesta HTTP (ver el ASL,
+   * `RespondAuto`/`RespondClarify`/etc.) para que el frontend pueda
+   * saludar a un cliente recurrente -- por eso, a diferencia del resto de
+   * `UnderstandContext`, SIEMPRE es un array concreto (nunca `undefined`)
+   * en la salida real de conversation-agent: un path de Step Functions
+   * (`.$`) que referencia un campo ausente falla en runtime, así que
+   * "sin historial" se modela como `[]`, nunca como el campo faltante.
+   * Solo se puebla en el PRIMER turno de un case nuevo (cuando este
+   * `caseId` todavía no tenía `STATE#latest`) -- en turnos siguientes del
+   * mismo case siempre es `[]`, para no repetir el saludo en cada mensaje.
+   * Opcional en el TIPO únicamente por el mismo motivo que `role`/
+   * `priorDisputeCount` (fixtures de test de otros servicios).
+   */
+  recentCases?: RecentCaseSummary[];
+}
+
+/**
+ * Resumen mínimo de un case anterior del mismo cliente -- deliberadamente
+ * un subconjunto chico de `Entities` (merchant/disputedAmount/productType),
+ * no el objeto completo: alcanza para un saludo breve ("tu última consulta
+ * fue sobre una disputa de $219 en Netflix"), sin reexponer campos que no
+ * aportan ahí (income/employment_status/document_id).
+ */
+export interface RecentCaseSummary {
+  intent: Intent;
+  /** `ConversationStateItem.updatedAt` de ese case anterior (ISO). */
+  updatedAt: string;
+  merchant: string | null;
+  disputedAmount: number | null;
+  productType: ProductType | null;
 }
 
 /**

@@ -4,6 +4,7 @@ import {
   EntityKey,
   ENTITY_KEYS,
   Intent,
+  RecentCaseSummary,
   REQUIRED_ENTITIES_BY_INTENT,
   UnderstandOutput,
   UserRole,
@@ -130,6 +131,11 @@ export function resolveEffectiveIntent(
  * igual se responde al usuario (no se pierde el turno), solo que el próximo
  * turno no tendrá memoria de este.
  */
+/** Máximo de cases previos a mostrarle a un cliente recurrente -- ver
+ * `UnderstandContext.recentCases`. 2 alcanza para un saludo breve, sin
+ * convertir el primer turno en una lista larga. */
+const RECENT_CASES_LIMIT = 2;
+
 export async function buildUnderstandOutput(
   input: BuildUnderstandOutputInput,
   store: ConversationStateStore,
@@ -166,7 +172,23 @@ export async function buildUnderstandOutput(
     return store.countPastDisputeCases(customerId, caseId);
   }
 
-  const [readResult, priorDisputeResult] = await Promise.all([store.getState(caseId), getPriorDisputeCount()]);
+  // Misma lógica que arriba (corre en paralelo, nunca marca `degraded`) --
+  // "memoria" de cliente recurrente (`UnderstandContext.recentCases`, ver
+  // docstring en el contrato compartido). Se pide SIEMPRE en paralelo
+  // (barato, mismo GSI) aunque solo se use si este resulta ser un case
+  // nuevo -- evita serializar la lectura detrás de `store.getState`, que
+  // agregaría latencia a CADA turno por una señal que solo importa en el
+  // primero.
+  async function getRecentCases(): Promise<DdbResult<ConversationStateItem[]>> {
+    if (!customerId) return { ok: true, value: [] };
+    return store.getRecentCasesForCustomer(customerId, caseId, RECENT_CASES_LIMIT);
+  }
+
+  const [readResult, priorDisputeResult, recentCasesResult] = await Promise.all([
+    store.getState(caseId),
+    getPriorDisputeCount(),
+    getRecentCases(),
+  ]);
 
   if (readResult.ok) {
     if (readResult.value) {
@@ -180,6 +202,26 @@ export async function buildUnderstandOutput(
   }
 
   const priorDisputeCount = priorDisputeResult.ok ? priorDisputeResult.value : null;
+
+  // Solo se puebla en el PRIMER turno de un case GENUINAMENTE nuevo
+  // (`readResult.ok && !readResult.value`, no simplemente "no se pudo
+  // leer" -- un fallo de lectura también deja `readResult.value` vacío,
+  // pero ahí NO sabemos con certeza si el case ya existía, así que no se
+  // arriesga un saludo de "cliente nuevo" potencialmente incorrecto). En
+  // cualquier otro caso, `[]` -- NUNCA `undefined` (ver docstring del
+  // campo: un path de Step Functions referenciando un campo ausente falla
+  // en runtime).
+  const isNewCase = readResult.ok && !readResult.value;
+  const recentCases: RecentCaseSummary[] =
+    isNewCase && recentCasesResult.ok
+      ? recentCasesResult.value.map((item) => ({
+          intent: item.lastIntent,
+          updatedAt: item.updatedAt,
+          merchant: item.entities.merchant,
+          disputedAmount: item.entities.disputed_amount,
+          productType: item.entities.product_type,
+        }))
+      : [];
 
   const previousMissingFields = previousIntent ? computeMissingFields(previousIntent, existingEntities) : [];
   const effectiveIntent = resolveEffectiveIntent(
@@ -238,6 +280,7 @@ export async function buildUnderstandOutput(
       role,
       selectedTransactionId: selectedTransactionId ?? undefined,
       priorDisputeCount,
+      recentCases,
     },
   };
 }

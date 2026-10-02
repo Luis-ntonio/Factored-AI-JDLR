@@ -165,7 +165,8 @@
         "language.$": "$.understand.language",
         "intent.$": "$.understand.intent",
         "status": "ok",
-        "result.$": "$.verifyResult.Payload.data"
+        "result.$": "$.verifyResult.Payload.data",
+        "recentCases.$": "$.understand.context.recentCases"
       },
       "End": true
     },
@@ -187,7 +188,8 @@
         "language.$": "$.understand.language",
         "intent.$": "$.understand.intent",
         "status": "clarify",
-        "policyDecision.$": "$.decideResult.Payload"
+        "policyDecision.$": "$.decideResult.Payload",
+        "recentCases.$": "$.understand.context.recentCases"
       },
       "End": true
     },
@@ -199,7 +201,8 @@
         "intent.$": "$.understand.intent",
         "status": "clarify",
         "policyDecision.$": "$.postActionResult.Payload",
-        "ambiguousCandidates.$": "$.postActionPayload.ambiguousCandidates"
+        "ambiguousCandidates.$": "$.postActionPayload.ambiguousCandidates",
+        "recentCases.$": "$.understand.context.recentCases"
       },
       "End": true
     },

@@ -226,3 +226,144 @@ describe("buildUnderstandOutput — context.priorDisputeCount", () => {
     expect(output.context.degraded).toBe(false);
   });
 });
+
+const PAST_STATE_OLDER = {
+  caseId: "case-old-1",
+  customerId: "cust-1",
+  entities: { ...emptyEntities(), merchant: "Netflix", disputed_amount: 219 },
+  lastIntent: "dispute_unrecognized_charge",
+  lastLanguage: "es",
+  turnCount: 2,
+  updatedAt: "2026-09-20T10:00:00.000Z",
+};
+
+const PAST_STATE_NEWER = {
+  caseId: "case-old-2",
+  customerId: "cust-1",
+  entities: { ...emptyEntities(), product_type: "credit_card" },
+  lastIntent: "eligibility_check",
+  lastLanguage: "es",
+  turnCount: 1,
+  updatedAt: "2026-09-25T10:00:00.000Z",
+};
+
+describe("ConversationStateStore.getRecentCasesForCustomer", () => {
+  it("devuelve los cases previos ordenados por updatedAt descendente, limitados", async () => {
+    const docClient = makeMockDocClient(async (cmd) => {
+      expect(cmd).toBeInstanceOf(QueryCommand);
+      const input = (cmd as QueryCommand).input;
+      expect(input.FilterExpression).toBe("sk = :state AND caseId <> :excludeCaseId");
+      return { Items: [PAST_STATE_OLDER, PAST_STATE_NEWER] };
+    });
+    const store = new ConversationStateStore({ tableName: "t", docClient, maxRetries: 1, baseDelayMs: 1 });
+
+    const result = await store.getRecentCasesForCustomer("cust-1", "case-current", 2);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.map((s) => s.caseId)).toEqual(["case-old-2", "case-old-1"]);
+  });
+
+  it("respeta el límite aunque haya más cases disponibles", async () => {
+    const docClient = makeMockDocClient(async () => ({ Items: [PAST_STATE_OLDER, PAST_STATE_NEWER] }));
+    const store = new ConversationStateStore({ tableName: "t", docClient, maxRetries: 1, baseDelayMs: 1 });
+
+    const result = await store.getRecentCasesForCustomer("cust-1", "case-current", 1);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value).toHaveLength(1);
+    expect(result.value[0].caseId).toBe("case-old-2");
+  });
+
+  it("DynamoDB no disponible -> {ok: false}, nunca lanza", async () => {
+    const docClient = makeMockDocClient(async () => {
+      throw new Error("down");
+    });
+    const store = new ConversationStateStore({ tableName: "t", docClient, maxRetries: 0, baseDelayMs: 1 });
+
+    const result = await store.getRecentCasesForCustomer("cust-1", "case-current", 2);
+
+    expect(result.ok).toBe(false);
+  });
+});
+
+describe("buildUnderstandOutput — context.recentCases (memoria de cliente recurrente)", () => {
+  function mockDocClientWithHistory() {
+    return makeMockDocClient(async (cmd) => {
+      if (cmd instanceof GetCommand) return { Item: undefined }; // case nuevo
+      if (cmd instanceof QueryCommand) {
+        const input = (cmd as QueryCommand).input;
+        // countPastDisputeCases filtra por lastIntent también -- distinguir
+        // de getRecentCasesForCustomer por la FilterExpression exacta.
+        if (input.FilterExpression?.includes("lastIntent")) return { Items: [PAST_STATE_OLDER] };
+        return { Items: [PAST_STATE_OLDER, PAST_STATE_NEWER] };
+      }
+      return {};
+    });
+  }
+
+  it("case NUEVO + customerId conocido + historial real -> recentCases poblado, más reciente primero", async () => {
+    const store = new ConversationStateStore({ tableName: "t", docClient: mockDocClientWithHistory(), maxRetries: 1, baseDelayMs: 1 });
+
+    const output = await buildUnderstandOutput(
+      { caseId: "case-new", customerId: "cust-1", messageId: "msg-1", message: "Hola", role: "cliente" },
+      store
+    );
+
+    expect(output.context.recentCases).toHaveLength(2);
+    expect(output.context.recentCases?.[0].intent).toBe("eligibility_check"); // PAST_STATE_NEWER
+    expect(output.context.recentCases?.[1]).toMatchObject({ intent: "dispute_unrecognized_charge", merchant: "Netflix", disputedAmount: 219 });
+  });
+
+  it("case EXISTENTE (ya tenía STATE#latest) -> recentCases siempre [], aunque haya historial real", async () => {
+    const existingState = { Item: { ...PAST_STATE_NEWER, caseId: "case-existing" } };
+    const docClient = makeMockDocClient(async (cmd) => {
+      if (cmd instanceof GetCommand) return existingState;
+      if (cmd instanceof QueryCommand) return { Items: [PAST_STATE_OLDER] };
+      return {};
+    });
+    const store = new ConversationStateStore({ tableName: "t", docClient, maxRetries: 1, baseDelayMs: 1 });
+
+    const output = await buildUnderstandOutput(
+      { caseId: "case-existing", customerId: "cust-1", messageId: "msg-2", message: "Otro mensaje", role: "cliente" },
+      store
+    );
+
+    expect(output.context.recentCases).toEqual([]);
+  });
+
+  it("customerId null (anónimo) -> recentCases [], nunca consulta el GSI", async () => {
+    const send = vi.fn(async (cmd: unknown) => {
+      if (cmd instanceof GetCommand) return { Item: undefined };
+      return {};
+    });
+    const docClient = { send } as unknown as DynamoDBDocumentClient;
+    const store = new ConversationStateStore({ tableName: "t", docClient, maxRetries: 1, baseDelayMs: 1 });
+
+    const output = await buildUnderstandOutput(
+      { caseId: "case-anon", customerId: null, messageId: "msg-3", message: "Hola", role: "anonimo" },
+      store
+    );
+
+    expect(output.context.recentCases).toEqual([]);
+    expect(send).not.toHaveBeenCalledWith(expect.any(QueryCommand));
+  });
+
+  it("fallo de la query de historial -> recentCases [], nunca marca degraded", async () => {
+    const docClient = makeMockDocClient(async (cmd) => {
+      if (cmd instanceof GetCommand) return { Item: undefined };
+      if (cmd instanceof QueryCommand) throw new Error("gsi down");
+      return {};
+    });
+    const store = new ConversationStateStore({ tableName: "t", docClient, maxRetries: 0, baseDelayMs: 1 });
+
+    const output = await buildUnderstandOutput(
+      { caseId: "case-new-2", customerId: "cust-1", messageId: "msg-4", message: "Hola", role: "cliente" },
+      store
+    );
+
+    expect(output.context.recentCases).toEqual([]);
+    expect(output.context.degraded).toBe(false);
+  });
+});
