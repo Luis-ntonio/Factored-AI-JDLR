@@ -1679,3 +1679,81 @@ sugerido para cada una (contra la transacción real ya marcada fraude).
 - Pendiente, fuera de alcance de esta fase: extender el catálogo del
   simulador de conversaciones (`services/admin-agent/src/simulation/
   profiles.ts`) con estos 2 clientes reales -- no se pidió, no se hizo.
+
+## Fase Login con código por email obligatorio (2026-10-02)
+
+Pregunta/decisión del usuario, en la misma conversación que la fase
+anterior: el login de documento+nombre (un solo paso, sin código) seguía
+siendo "un solo factor verificable" -- y ahora literalmente hay 2
+personas reales con su documento+nombre PUBLICADOS en el propio README
+(fase anterior) para que los jueces las prueben. El usuario decidió,
+explícito: "siempre debería usarse el código de email en todos los
+logins por tema de seguridad y prevención de suplantación (eso entra en
+la rúbrica de seguridad)". Sobre cómo recibe el código un juez sin
+acceso a ningún inbox real (ni el del equipo ni el de las personas
+reales): el usuario eligió pasarlo él mismo a mano durante la demo en
+vivo -- NO se construyó ningún mecanismo que devuelva el código por API
+(se consideró y se descartó, para no debilitar el mecanismo real de
+OTP).
+
+**Diseño**: login pasa de "1 paso, O BIEN documento+nombre O BIEN
+documento+código" (dos caminos alternativos, de fuerza distinta) a
+"SIEMPRE 2 pasos, los mismos para todos": paso 1 (documento + nombre +
+apellido, primer factor) dispara el código; paso 2 (documento + código)
+mintea el token. Un documento+nombre correctos YA NO alcanzan solos --
+el paso 1 nunca devuelve un token, solo `{ok:true}` genérico (anti-
+enumeración preservada: ni siquiera revela si matcheó).
+
+**Backend** (`services/auth-agent`): `login.ts` se repropone por completo
+-- de "mintea un token si documento+nombre matchean" (`attemptLogin`,
+retirado) a "busca el `Customer` verificado o `null`"
+(`findVerifiedCustomer`, lógica pura reusada, sin AWS). `otp/request.ts`
+(`attemptOtpRequest`) ahora EXIGE `first_name`/`last_name` además de
+`document_id` -- antes (login alternativo) solo pedía documento, sin
+chequear nombre, lo cual era en los hechos MÁS débil que el login
+principal; ahora es más fuerte que ambos caminos anteriores, unificados
+en uno solo. `index.ts`: `/auth/login` y `/auth/otp/request` despachan
+al MISMO handler (mismo comportamiento, 2 nombres de ruta por historial/
+compatibilidad del frontend, nunca 2 lógicas distintas) -- único cambio
+de rutas; `/auth/otp/verify` sin cambios (siempre fue el único paso que
+mintea token).
+
+**Email para TODOS los clientes de demo**: con el código obligatorio
+para todo login, los 3 clientes de autoría que usaban `@example.com`
+(dominio reservado, nunca entrega) hubieran quedado sin forma de
+loguearse -- los 4 clientes de autoría ahora comparten el mismo inbox
+real del equipo que ya usaba María (`services/transaction-agent/src/
+data/mock-core-banking.ts`). Los 2 clientes reales (fase anterior) ya
+tenían el mismo override por el motivo de siempre (nunca mandarle un
+código real a una persona real ajena al equipo).
+
+**Frontend** (`apps/web`): `LoginModal.tsx` tenía 2 MODOS alternativos
+(toggle "Documento y nombre" / "Código por email") -- se unifican en un
+único flujo secuencial de 2 pasos, sin alternativa ni toggle.
+`AuthContext.tsx`: `login()` (minteaba token directo) se reemplaza por
+`requestLoginCode()` (paso 1, nunca devuelve sesión) -- `applySession()`
+(ya existía para el código) sigue siendo el único punto real de "sesión
+establecida". `LoginPrompt.tsx` (prompt inline del chat cuando
+`policyDecision.askField === "session_login"`) no necesitó cambios --
+solo abre el mismo modal compartido.
+
+**Tests**: `login.test.ts` reescrito para `findVerifiedCustomer`.
+`otp-request.test.ts` -- todas las llamadas ahora incluyen nombre +
+apellido, test nuevo de anti-enumeración (documento correcto, nombre que
+NO matchea -> mismo `{ok:true}`, sin disparar el email). `handler.test.ts`
+reescrito -- `/auth/login` y `/auth/otp/request` ahora comparten exactamente
+el mismo describe block (`it.each` sobre ambas rutas, mismo resultado).
+34 tests en `auth-agent` (antes 31), monorepo completo (9 workspaces) en
+verde.
+
+### Estado final de esta fase
+
+- `tsc --noEmit` limpio en `auth-agent` y `apps/web`. `terraform plan`
+  limpio y acotado (solo rebuild de Lambdas por cambio de fuente, ningún
+  `.tf` cambió).
+- Requiere `terraform apply` del usuario + redeploy del frontend (este sí
+  cambió de verdad: UI de login nueva) antes de estar en vivo.
+- Pendiente explícito, a propósito (decisión ya tomada por el usuario, no
+  una limitación olvidada): sin mecanismo de auto-servicio para que un
+  juez reciba el código sin pasar por el equipo -- el usuario lo entrega
+  a mano durante la demo.

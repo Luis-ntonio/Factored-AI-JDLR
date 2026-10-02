@@ -14,14 +14,30 @@ Escalate**, con **información de productos de crédito y elegibilidad**
 infraestructura. Español/portugués. Infraestructura AWS real desplegada
 vía Terraform — no un mock desechable.
 
-**🔗 Demo en vivo: https://d1vi5rhqqyd97a.cloudfront.net** (chat real,
-sin login requerido para `product_info`/`faq`; `eligibility_check`/
-`dispute_unrecognized_charge` piden iniciar sesión -- cliente mock de
-prueba: documento `LOTM900101MDFPRR09`, nombre `María Fernanda`, apellido
-`López Torres`; ver los otros 3 clientes mock en
-`services/transaction-agent/src/data/mock-core-banking.ts`). Infraestructura
-real desplegada en AWS (CloudFront + API Gateway + Step Functions + Lambda
-+ DynamoDB + Bedrock), no un mock local.
+**🔗 Demo en vivo: https://d1vi5rhqqyd97a.cloudfront.net** (chat real, sin
+login requerido para `product_info`/`faq`; `eligibility_check`/
+`dispute_unrecognized_charge` piden iniciar sesión). Infraestructura real
+desplegada en AWS (CloudFront + API Gateway + Step Functions + Lambda +
+DynamoDB + Bedrock), no un mock local.
+
+**Login SIEMPRE de 2 pasos, con código de un solo uso por email**
+(decisión de seguridad explícita -- ver `docs/STATUS.md`, "Login con
+código por email obligatorio": documento+nombre solo ya no alcanza,
+menos todavía con 2 clientes reales publicados abajo). Paso 1: documento
++ nombre + apellido. Paso 2: el código de 6 dígitos que llega por email
+-- **si estás evaluando esto en vivo y no tenés acceso a ese email,
+pedinos el código directamente** (contacto del equipo/hackathon), no hay
+forma de auto-servicio por diseño (nunca se devuelve el código por la
+API, para no debilitar el mecanismo real de OTP).
+
+Clientes de prueba, documento + nombre + apellido para el paso 1:
+
+| Documento | Nombre | Apellido | Real/mock |
+| --- | --- | --- | --- |
+| `LOTM900101MDFPRR09` | `María Fernanda` | `López Torres` | Mock (demo), Premium |
+
+Ver los otros 3 clientes mock en `services/transaction-agent/src/data/
+mock-core-banking.ts`.
 
 **Clientes REALES del dataset del hackathon** (no inventados, ver
 `services/transaction-agent/src/data/real-customers.ts` para la
@@ -34,10 +50,12 @@ simulada:
 | `39168655` | `Ana Angélica` | `Romero López` | "No reconozco un cargo de $173.01 en Cine Premium" |
 | `55181511` | `Eduardo` | `Giménez Vega` | "No reconozco un cargo de $139278.93 en Restaurante El Buen Sabor" |
 
-Único dato sobrescrito respecto al dataset real: el email (nunca se le
-manda un código de verificación real a una persona real ajena al equipo,
-aunque el resto de sus datos sí esté autorizado para este ejercicio --
-ver docstring de `real-customers.ts`).
+Único dato sobrescrito respecto al dataset real: el email -- igual que
+los 4 clientes mock de arriba, TODOS comparten el mismo inbox real del
+equipo ahora que el código es obligatorio para cualquier login (nunca se
+le manda un código real a una persona real ajena al equipo, aunque el
+resto de sus datos sí esté autorizado para este ejercicio -- ver
+docstring de `real-customers.ts`).
 
 > Este proyecto se construyó en 10 días como respuesta al
 > "Factored AI & Data Hackathon 2026" (`hacka-info/Factored AI & Data
