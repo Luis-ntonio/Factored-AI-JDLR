@@ -243,6 +243,21 @@ body {
   margin-top: 6px;
 }
 
+.returning-customer-banner {
+  background: var(--color-teal-surface);
+  border: 1px solid var(--color-teal);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--color-teal-deep);
+}
+
+.returning-customer-banner ul {
+  margin: 4px 0 0 0;
+  padding-left: 18px;
+}
+
 .faq-item + .faq-item {
   margin-top: 10px;
   border-top: 1px dashed var(--color-border-subtle);

@@ -13,6 +13,7 @@ import type {
   EscalationSummary,
   Intent,
   LanguageCode,
+  RecentCaseSummary,
   RetrievalResult,
 } from "@banking-agent/shared";
 
@@ -39,6 +40,12 @@ export interface ChatOkResponse {
   language: LanguageCode;
   intent: Intent;
   result: RetrievalResult | EligibilityResult | DisputeVerificationResult;
+  /** Presente (no vacío) SOLO en el primer turno de un case nuevo, cuando
+   * `customerId` es conocido y tiene historial real (ver
+   * `UnderstandContext.recentCases`, @banking-agent/shared) -- "memoria"
+   * de cliente recurrente. `ReturningCustomerBanner` (`BotResponse.tsx`) lo
+   * renderiza como saludo breve. Ausente o vacío en cualquier otro turno. */
+  recentCases?: RecentCaseSummary[];
 }
 
 export interface ChatClarifyResponse {
@@ -62,6 +69,8 @@ export interface ChatClarifyResponse {
     amount: number;
     date: string;
   }>;
+  /** Mismo campo/criterio que `ChatOkResponse.recentCases`. */
+  recentCases?: RecentCaseSummary[];
 }
 
 export interface ChatEscalateResponse {

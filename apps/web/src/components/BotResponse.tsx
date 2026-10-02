@@ -1,8 +1,14 @@
-import type { DisputeVerificationResult, EligibilityResult, LanguageCode, RetrievalResult } from "@banking-agent/shared";
+import type {
+  DisputeVerificationResult,
+  EligibilityResult,
+  LanguageCode,
+  RecentCaseSummary,
+  RetrievalResult,
+} from "@banking-agent/shared";
 import type { ChatResponse } from "../types";
 import type { LoginSession } from "../auth/api";
 import { isDisputeResult, isRetrievalResult } from "../types";
-import { ENTITY_LABELS, PRODUCT_TYPE_LABELS, SCORE_ZONE_LABELS, formatEntityValue } from "../labels";
+import { ENTITY_LABELS, INTENT_LABELS, PRODUCT_TYPE_LABELS, SCORE_ZONE_LABELS, formatEntityValue } from "../labels";
 import { EscalationCard } from "./EscalationCard";
 import { LanguageBadge } from "./LanguageBadge";
 import { LoginPrompt } from "./LoginPrompt";
@@ -283,6 +289,52 @@ function ClarifyQuestion({
   );
 }
 
+const RETURNING_CUSTOMER_TITLE: Record<LanguageCode, string> = {
+  es: "De vuelta por acá",
+  pt: "De volta por aqui",
+};
+
+/** "28/9/2026 — una disputa de cargo ($219, Netflix)" -- deliberadamente
+ * generada en el FRONTEND a partir de datos estructurados (nunca texto
+ * libre del backend, mismo criterio que el resto de esta UI: conversation-
+ * agent nunca hace NLG, solo emite datos que acá se renderizan). */
+function formatRecentCase(item: RecentCaseSummary, language: LanguageCode): string {
+  const date = new Date(item.updatedAt).toLocaleDateString(language === "pt" ? "pt-BR" : "es-ES");
+  const intentLabel = INTENT_LABELS[language][item.intent] ?? item.intent;
+  const details: string[] = [];
+  if (item.disputedAmount !== null) details.push(`$${item.disputedAmount}`);
+  if (item.merchant) details.push(item.merchant);
+  if (item.productType) details.push(PRODUCT_TYPE_LABELS[language][item.productType] ?? item.productType);
+  const detailText = details.length > 0 ? ` (${details.join(", ")})` : "";
+  return `${date} — ${intentLabel}${detailText}`;
+}
+
+/** "Memoria" de cliente recurrente (ver `UnderstandContext.recentCases`,
+ * @banking-agent/shared) -- solo llega poblado en el PRIMER turno de un
+ * case nuevo cuando el cliente tiene historial real, así que esta franja
+ * aparece como mucho una vez por conversación, nunca se repite turno a
+ * turno. */
+function ReturningCustomerBanner({
+  recentCases,
+  language,
+}: {
+  recentCases: RecentCaseSummary[] | undefined;
+  language: LanguageCode;
+}) {
+  if (!recentCases || recentCases.length === 0) return null;
+
+  return (
+    <div className="returning-customer-banner">
+      <strong>{RETURNING_CUSTOMER_TITLE[language]}</strong>
+      <ul>
+        {recentCases.map((item, idx) => (
+          <li key={idx}>{formatRecentCase(item, language)}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 const UNAVAILABLE_TEXT: Record<LanguageCode, string> = {
   es: "No se pudo procesar tu solicitud. Por favor, intenta de nuevo.",
   pt: "Não foi possível processar sua solicitação. Por favor, tente novamente.",
@@ -347,6 +399,7 @@ export function BotResponse({
     return (
       <>
         <LanguageBadge language={response.language} />
+        <ReturningCustomerBanner recentCases={response.recentCases} language={response.language} />
         <ClarifyQuestion
           response={response}
           language={response.language}
@@ -362,6 +415,7 @@ export function BotResponse({
   return (
     <>
       <LanguageBadge language={language} />
+      <ReturningCustomerBanner recentCases={response.recentCases} language={language} />
       {isRetrievalResult(result) ? (
         intent === "faq" ? (
           <FaqList retrieval={result} language={language} />

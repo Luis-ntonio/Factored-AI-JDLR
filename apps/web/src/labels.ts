@@ -83,6 +83,28 @@ export const SCORE_ZONE_LABELS: Record<LanguageCode, Record<string, string>> = {
   },
 };
 
+/** Etiquetas legibles de `Intent` -- usadas por `ReturningCustomerBanner`
+ * (`BotResponse.tsx`) para nombrar de qué fue la última consulta de un
+ * cliente recurrente (ver `UnderstandContext.recentCases`). */
+export const INTENT_LABELS: Record<LanguageCode, Record<string, string>> = {
+  es: {
+    product_info: "información de productos",
+    eligibility_check: "una consulta de elegibilidad",
+    faq: "una pregunta frecuente",
+    escalation_request: "un pedido de hablar con un humano",
+    dispute_unrecognized_charge: "una disputa de cargo",
+    unknown: "una consulta",
+  },
+  pt: {
+    product_info: "informações de produtos",
+    eligibility_check: "uma consulta de elegibilidade",
+    faq: "uma pergunta frequente",
+    escalation_request: "um pedido para falar com um humano",
+    dispute_unrecognized_charge: "uma disputa de cobrança",
+    unknown: "uma consulta",
+  },
+};
+
 export function formatEntityValue(key: string, value: unknown, language: LanguageCode): string {
   if (value === null || value === undefined) return language === "pt" ? "Não especificado" : "No especificado";
   if (key === "product_type" && typeof value === "string") return PRODUCT_TYPE_LABELS[language][value] ?? value;
