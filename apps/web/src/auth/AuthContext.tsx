@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import type { ReactNode } from "react";
 import type { LanguageCode } from "@banking-agent/shared";
 import type { LoginSession } from "./api";
-import { loginSession } from "./api";
+import { requestLoginCode } from "./api";
 
 const SESSION_STORAGE_KEY = "banking-agent-session";
 
@@ -25,13 +25,19 @@ interface AuthContextValue {
   isModalOpen: boolean;
   requestLogin: (onSuccess?: (session: LoginSession) => void) => void;
   closeModal: () => void;
-  login: (documentId: string, firstName: string, lastName: string, language: LanguageCode) => Promise<{ ok: boolean; error?: string }>;
-  /** Aplica una sesión YA resuelta (ej. por el flujo de código OTP,
-   * `verifyOtp()` en `LoginModal.tsx`) -- mismo efecto que el camino feliz
-   * de `login()` (cierra el modal, dispara `pendingSuccessCallback` con la
-   * sesión nueva) pero sin volver a pegarle a `/auth/login`. Dos métodos de
-   * login (documento+nombre, documento+código) convergen acá en un solo
-   * punto de "sesión establecida". */
+  /** Paso 1 de 2 (ver docstring de `auth/api.ts`): documento + nombre +
+   * apellido -> dispara el código por email si matchean. NUNCA devuelve
+   * una sesión -- eso solo pasa en `applySession`, tras verificar el
+   * código (paso 2, `LoginModal.tsx`). */
+  requestLoginCode: (
+    documentId: string,
+    firstName: string,
+    lastName: string,
+    language: LanguageCode
+  ) => Promise<{ ok: boolean; error?: string }>;
+  /** Aplica una sesión YA resuelta (paso 2, `verifyOtp()` en
+   * `LoginModal.tsx`, único punto que realmente mintea un token) -- cierra
+   * el modal, dispara `pendingSuccessCallback` con la sesión nueva. */
   applySession: (session: LoginSession) => void;
   logout: () => void;
 }
@@ -89,21 +95,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [pendingSuccessCallback]
   );
 
-  const login = useCallback(
+  const requestLoginCodeFn = useCallback(
     async (documentId: string, firstName: string, lastName: string, language: LanguageCode) => {
-      const result = await loginSession(documentId, firstName, lastName, language);
+      const result = await requestLoginCode(documentId, firstName, lastName, language);
       if (!result.ok) return { ok: false, error: result.error };
-      applySession(result.session);
       return { ok: true };
     },
-    [applySession]
+    []
   );
 
   const logout = useCallback(() => setSession(null), []);
 
   const value = useMemo<AuthContextValue>(
-    () => ({ session, isModalOpen, requestLogin, closeModal, login, applySession, logout }),
-    [session, isModalOpen, requestLogin, closeModal, login, applySession, logout]
+    () => ({
+      session,
+      isModalOpen,
+      requestLogin,
+      closeModal,
+      requestLoginCode: requestLoginCodeFn,
+      applySession,
+      logout,
+    }),
+    [session, isModalOpen, requestLogin, closeModal, requestLoginCodeFn, applySession, logout]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
