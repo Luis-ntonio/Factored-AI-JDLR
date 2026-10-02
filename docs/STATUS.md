@@ -1539,3 +1539,75 @@ públicos, distinto del PDF original que ya se mapeó en
   cero riesgo de regresión.
 - Pendiente explícito, a propósito: deck de slides + video pitch (los 2
   entregables obligatorios restantes), para una fase posterior.
+
+## Fase Memoria de cliente recurrente (2026-10-02)
+
+Pregunta del usuario: "¿no hay forma de almacenar información de sesiones
+previas... para que la experiencia sea más amigable? ¿acordarse de lo que
+se queja?" -- con la aclaración explícita de que el dataset de la hacka
+está autorizado para este uso (no es un bloqueo de PII). Se acotó el
+alcance a lo claramente barato y disponible hoy: recordar la ÚLTIMA
+actividad real del cliente (intent + fecha + detalle breve), reusando el
+mismo GSI `by-customer` que ya alimentaba `priorDisputeCount`.
+Explícitamente DEJADO FUERA en esta fase (requiere una decisión de
+producto, discutido con el usuario antes de arrancar): un loop de
+"¿se resolvió lo de la última vez?" -- hoy no existe ningún canal por el
+que un agente humano le devuelva al sistema que una escalación se
+resolvió, así que esa pieza queda para una fase futura si se decide
+construir ese canal.
+
+**Diseño**: `UnderstandContext.recentCases` (nuevo, @banking-agent/shared)
+-- a diferencia de `priorDisputeCount` (señal interna, nunca sale de
+policy-agent), este campo SÍ viaja hasta la respuesta HTTP real, así que
+tiene una restricción nueva: debe ser SIEMPRE un array concreto (nunca
+`undefined`), porque el ASL lo referencia por JSONPath (`.$`) en los
+estados `RespondAuto`/`RespondClarify`/`RespondClarifyPostAction`, y un
+path ausente ahí falla en runtime (gotcha real, evitado desde el diseño
+-- no es el patrón que ya usan `priorDisputeCount`/`selectedTransactionId`,
+que SÍ pueden faltar porque nunca se referencian vía ASL, solo desde
+código de Lambda). Solo se puebla en el PRIMER turno de un case
+GENUINAMENTE nuevo (`readResult.ok && !readResult.value` -- nunca ante un
+fallo de lectura, para no arriesgar un saludo "cliente nuevo"
+potencialmente incorrecto).
+
+**Backend**: `ConversationStateStore.getRecentCasesForCustomer`
+(`services/conversation-agent/src/context/state-store.ts`) -- mismo
+`Query` sobre `by-customer` que `countPastDisputeCases`, pero devuelve los
+items completos (hasta 2, ordenados por `updatedAt` desc en memoria, el
+GSI no ordena por ese campo). Corre en paralelo a las otras 2 lecturas del
+turno (`Promise.all`), nunca marca `degraded` si falla -- mismo criterio
+ya establecido para `priorDisputeCount`.
+
+**Frontend**: `ReturningCustomerBanner` (`BotResponse.tsx`) renderiza una
+franja breve ("28/9/2026 — una disputa de cargo ($219, Netflix)") arriba
+de la respuesta del bot, generada 100% en el frontend a partir de datos
+estructurados -- conversation-agent nunca hace NLG, mismo criterio que el
+resto de esta UI. Aparece como mucho una vez por conversación.
+
+**Verificación real contra AWS** (2 llamadas `curl`, cliente real María/
+CUST-0001, que ya tenía historial real de sesiones anteriores de esta
+misma cuenta): un case nuevo devolvió `recentCases` con 2 entradas reales
+(una disputa de Netflix $219 recién creada para la prueba, y un
+`product_info` de una fase anterior), ordenadas más reciente primero; el
+turno 2 del MISMO case devolvió `recentCases: []`, confirmando que no se
+repite. De paso, esta corrida también confirmó en producción, por primera
+vez desde que se aplicó, que `escalate-dispute-repeat-complainer` (fase
+anterior) funciona real -- María ya tenía suficientes disputas previas
+reales como para disparar la regla.
+
+### Estado final de esta fase
+
+- 112 tests en `conversation-agent` (13 nuevos), monorepo completo (9
+  workspaces) en verde. `tsc --noEmit` limpio en los 4 paquetes tocados
+  (`shared`, `conversation-agent`, `apps/web`, y el resto por la
+  dependencia de `shared`).
+- `terraform apply` real corrido por el usuario -- el plan también
+  recogió, de paso, la regla `escalate-dispute-repeat-complainer` de la
+  fase anterior (estaba committeada pero nunca se había aplicado).
+- Frontend desplegado real (S3 + invalidación de CloudFront).
+- Verificación de browser real NO se pudo completar esta vez (extensión
+  de Chrome desconectada) -- la verificación real vía `curl` contra AWS
+  cubre el contrato completo igual.
+- **Qué NO se hizo (deliberado, decisión de producto pendiente)**: el
+  loop "¿se resolvió lo de la última vez?" -- requiere un canal nuevo
+  (humano -> sistema) que no existe hoy.
