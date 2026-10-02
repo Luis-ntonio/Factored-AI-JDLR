@@ -1,37 +1,34 @@
 import type { Customer } from "@banking-agent/transaction-agent/dist/data/mock-core-banking";
-import { roleFromSegment, signSessionToken, type SessionTokenPayload } from "@banking-agent/shared";
 
 /**
- * Lógica pura de login (sin AWS, testeable sin mocks) -- separada del
- * handler de Lambda, mismo criterio que `computeEligibilityScore`/
- * `computeDisputeVerification` en transaction-agent.
- *
- * "Un documento solo no prueba identidad" (PDF del hackathon, pág. 5,
- * "Data and execution boundaries") -- por eso se exige TAMBIÉN
- * first_name/last_name, y deben matchear los del cliente encontrado por
- * `document_number` (case-insensitive, trim -- nunca exact-byte-match
- * sobre un dato que el usuario tipea a mano). Si CUALQUIERA de los dos no
- * matchea, se devuelve el MISMO error genérico que si el documento no
- * existe -- nunca se revela cuál de los dos falló (evita enumeración de
- * documentos válidos).
+ * Verificación de identidad PURA (sin AWS, testeable sin mocks) -- ya NO
+ * mintea ningún token acá (ver `otp/verify.ts` para eso). Decisión de
+ * seguridad del usuario (ver docs/STATUS.md, fase "Login con código por
+ * email obligatorio"): "un documento solo no prueba identidad" (PDF del
+ * hackathon, pág. 5) se venía resolviendo exigiendo TAMBIÉN nombre/
+ * apellido, pero eso sigue siendo un solo factor verificable a partir de
+ * datos que pueden filtrarse o publicarse (literalmente el caso de este
+ * proyecto: 2 clientes reales con su documento+nombre publicados en el
+ * propio README para que los jueces los prueben -- ver
+ * `services/transaction-agent/src/data/real-customers.ts`). Por eso TODO
+ * login ahora exige un segundo factor real (código de un solo uso por
+ * email, `otp/`) -- esta función sigue siendo el primer factor (identidad
+ * declarada vs. core bancario), ahora como paso previo a enviar el código,
+ * nunca como el login completo por sí solo.
  */
 
-export interface LoginRequest {
+export interface IdentityClaim {
   document_id: string;
   first_name: string;
   last_name: string;
 }
-
-export type LoginResult =
-  | { ok: true; token: string; role: SessionTokenPayload["role"]; customerName: string; expiresAt: string }
-  | { ok: false; reason: "invalid_credentials" | "invalid_request" };
 
 /** trim + lowercase + sin tildes/diacríticos (NFD, despoja los combining
  * marks) -- muchos usuarios tipean sin tildes (teclados sin config regional,
  * mobile, apuro). "Maria" debe matchear "María" igual que "maria" matchea
  * "MARIA" -- mismo espíritu de tolerancia, un usuario real no debería
  * fallar el login por no haber tipeado un acento. */
-function normalizeName(value: string): string {
+export function normalizeName(value: string): string {
   return value
     .trim()
     .toLowerCase()
@@ -39,48 +36,30 @@ function normalizeName(value: string): string {
     .replace(/[̀-ͯ]/g, "");
 }
 
-export function attemptLogin(
-  request: Partial<LoginRequest>,
-  customers: readonly Customer[],
-  sessionSecret: string
-): LoginResult {
-  const documentId = typeof request.document_id === "string" ? request.document_id.trim() : "";
-  const firstName = typeof request.first_name === "string" ? request.first_name : "";
-  const lastName = typeof request.last_name === "string" ? request.last_name : "";
+/**
+ * Busca el `Customer` cuyo `document_number` matchea Y cuyo nombre/apellido
+ * matchean (case-insensitive, trim, sin tildes) -- `null` si CUALQUIERA de
+ * los dos no matchea, exactamente igual (nunca se revela cuál de los dos
+ * falló -- anti-enumeración, mismo criterio que `otp/request.ts` aplica
+ * después sobre el resultado de esta función).
+ */
+export function findVerifiedCustomer(
+  claim: Partial<IdentityClaim>,
+  customers: readonly Customer[]
+): Customer | null {
+  const documentId = typeof claim.document_id === "string" ? claim.document_id.trim() : "";
+  const firstName = typeof claim.first_name === "string" ? claim.first_name : "";
+  const lastName = typeof claim.last_name === "string" ? claim.last_name : "";
 
   if (!documentId || !firstName.trim() || !lastName.trim()) {
-    return { ok: false, reason: "invalid_request" };
+    return null;
   }
 
   const customer = customers.find((c) => c.document_number === documentId);
-  if (!customer) {
-    return { ok: false, reason: "invalid_credentials" };
-  }
+  if (!customer) return null;
 
   const nameMatches =
     normalizeName(customer.first_name) === normalizeName(firstName) &&
     normalizeName(customer.last_name) === normalizeName(lastName);
-  if (!nameMatches) {
-    return { ok: false, reason: "invalid_credentials" };
-  }
-
-  const role = roleFromSegment(customer.segment);
-  const token = signSessionToken(
-    { customerId: customer.customer_id, documentId: customer.document_number, segment: customer.segment, role },
-    sessionSecret
-  );
-
-  // Decodificar el propio token para leer `exp` en vez de recalcular TTL acá
-  // -- una sola fuente de verdad del tiempo de expiración (signSessionToken).
-  const payloadB64 = token.split(".")[0];
-  const payload = JSON.parse(Buffer.from(payloadB64, "base64url").toString("utf-8")) as { exp: number };
-  const expiresAt = new Date(payload.exp * 1000).toISOString();
-
-  return {
-    ok: true,
-    token,
-    role,
-    customerName: `${customer.first_name} ${customer.last_name}`,
-    expiresAt,
-  };
+  return nameMatches ? customer : null;
 }

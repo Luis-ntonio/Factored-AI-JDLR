@@ -227,11 +227,14 @@ const MOCK_CUSTOMERS: readonly Customer[] = [
     last_name: "López Torres",
     date_of_birth: "1990-01-01",
     gender: "F",
-    // Dato de prueba de esta sesión (no un dato real de negocio): apuntado
-    // a un inbox real del equipo para poder verificar de punta a punta la
-    // entrega real de un código OTP por email (services/auth-agent/src/otp)
-    // -- el resto del mock usa @example.com (dominio reservado, nunca
-    // entrega). Revertir a un @example.com si esto deja de necesitarse.
+    // Dato de prueba (no un dato real de negocio): apuntado a un inbox real
+    // del equipo. Desde que el código por email pasó a ser OBLIGATORIO en
+    // TODO login (decisión de seguridad del usuario -- ver docs/STATUS.md,
+    // fase "Login con código por email obligatorio"), los 4 clientes de
+    // autoría usan el MISMO inbox real -- antes solo María lo tenía, el
+    // resto usaba @example.com (dominio reservado que nunca entrega), lo
+    // cual dejaría a esos 3 sin forma de loguearse ahora que el código es
+    // obligatorio para todos.
     email: "lagg1088@gmail.com",
     mobile_phone: "+52-55-1234-5678",
     address: "Av. Reforma 123, Col. Juárez",
@@ -260,7 +263,8 @@ const MOCK_CUSTOMERS: readonly Customer[] = [
     last_name: "Restrepo Gómez",
     date_of_birth: "1985-06-15",
     gender: "M",
-    email: "carlos.restrepo@example.com",
+    // Mismo motivo/inbox que CUST-0001 -- ver comentario ahí.
+    email: "lagg1088@gmail.com",
     mobile_phone: "+57-300-123-4567",
     address: "Cra 43A #10-25",
     city: "Medellín",
@@ -288,7 +292,8 @@ const MOCK_CUSTOMERS: readonly Customer[] = [
     last_name: "Fernández Acosta",
     date_of_birth: "1993-11-02",
     gender: "F",
-    email: "julieta.fernandez@example.com",
+    // Mismo motivo/inbox que CUST-0001 -- ver comentario ahí.
+    email: "lagg1088@gmail.com",
     mobile_phone: "+54-11-1234-5678",
     address: "Av. Corrientes 1500",
     city: "Buenos Aires",
@@ -316,7 +321,8 @@ const MOCK_CUSTOMERS: readonly Customer[] = [
     last_name: "Gómez Sánchez",
     date_of_birth: "1998-05-12",
     gender: "M",
-    email: "roberto.gomez@example.com",
+    // Mismo motivo/inbox que CUST-0001 -- ver comentario ahí.
+    email: "lagg1088@gmail.com",
     mobile_phone: "+52-33-9876-5432",
     address: "Calle Hidalgo 45",
     city: "Guadalajara",

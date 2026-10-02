@@ -59,39 +59,48 @@ function makeEvent(body: unknown, rawPath?: string): APIGatewayProxyEventV2 {
   return { body: JSON.stringify(body), isBase64Encoded: false, rawPath } as unknown as APIGatewayProxyEventV2;
 }
 
-describe("auth-agent handler", () => {
-  it("login exitoso con SSM disponible -> 200, ok:true, token presente", async () => {
+describe("auth-agent handler -- paso 1 de login (/auth/login y /auth/otp/request, mismo comportamiento)", () => {
+  it.each(["/auth/login", "/auth/otp/request", undefined] as const)(
+    "documento + nombre + apellido correctos en %s -> 200, ok:true (NUNCA un token acá -- dispara el código por email)",
+    async (rawPath) => {
+      ssmSend.mockResolvedValue({ Parameter: { Value: "el-secreto-real" } });
+      dynamoSend.mockImplementation(async (cmd: { kind: string }) => {
+        if (cmd.kind === "get") return { Item: undefined };
+        return {};
+      });
+      const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+      vi.stubGlobal("fetch", fetchMock);
+      const { handler } = await import("../src/index");
+
+      const result = await handler(
+        makeEvent({ document_id: "LOTM900101MDFPRR09", first_name: "María Fernanda", last_name: "López Torres" }, rawPath)
+      );
+
+      expect(result.statusCode).toBe(200);
+      const body = JSON.parse(result.body as string);
+      expect(body).toEqual({ ok: true });
+      expect(fetchMock).toHaveBeenCalledWith("https://api.resend.com/emails", expect.anything());
+    }
+  );
+
+  it("credenciales inválidas -> 200, ok:true IGUAL (anti-enumeración), pero sin disparar ningún email", async () => {
     ssmSend.mockResolvedValue({ Parameter: { Value: "el-secreto-real" } });
-    const { handler } = await import("../src/index");
-
-    const result = await handler(
-      makeEvent({ document_id: "LOTM900101MDFPRR09", first_name: "María Fernanda", last_name: "López Torres" })
-    );
-
-    expect(result.statusCode).toBe(200);
-    const body = JSON.parse(result.body as string);
-    expect(body.ok).toBe(true);
-    expect(body.role).toBe("cliente_estrella");
-    expect(typeof body.token).toBe("string");
-  });
-
-  it("credenciales inválidas -> 200, ok:false, reason invalid_credentials", async () => {
-    ssmSend.mockResolvedValue({ Parameter: { Value: "el-secreto-real" } });
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal("fetch", fetchMock);
     const { handler } = await import("../src/index");
 
     const result = await handler(makeEvent({ document_id: "NO-EXISTE", first_name: "X", last_name: "Y" }));
 
     expect(result.statusCode).toBe(200);
-    expect(JSON.parse(result.body as string)).toEqual({ ok: false, reason: "invalid_credentials" });
+    expect(JSON.parse(result.body as string)).toEqual({ ok: true });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("SSM no disponible tras reintentos -> 200, ok:false, nunca firma con un secreto inventado", async () => {
-    ssmSend.mockRejectedValue(new Error("AccessDenied"));
+  it("campos faltantes -> 200, ok:false, invalid_request", async () => {
+    ssmSend.mockResolvedValue({ Parameter: { Value: "el-secreto-real" } });
     const { handler } = await import("../src/index");
 
-    const result = await handler(
-      makeEvent({ document_id: "LOTM900101MDFPRR09", first_name: "María Fernanda", last_name: "López Torres" })
-    );
+    const result = await handler(makeEvent({ document_id: "LOTM900101MDFPRR09" }));
 
     expect(result.statusCode).toBe(200);
     expect(JSON.parse(result.body as string)).toEqual({ ok: false, reason: "invalid_request" });
@@ -107,26 +116,22 @@ describe("auth-agent handler", () => {
     expect(result.statusCode).toBe(200);
     expect(JSON.parse(result.body as string).ok).toBe(false);
   });
-});
 
-describe("auth-agent handler -- rutas OTP", () => {
-  it("POST /auth/otp/request con documento real -> 200, ok:true, dispara el email vía Resend", async () => {
+  it("sin RESEND_API_KEY_PARAM_NAME configurada -> 200, ok:false, nunca finge haber enviado un email", async () => {
+    delete process.env.RESEND_API_KEY_PARAM_NAME;
     ssmSend.mockResolvedValue({ Parameter: { Value: "el-secreto-real" } });
-    dynamoSend.mockImplementation(async (cmd: { kind: string }) => {
-      if (cmd.kind === "get") return { Item: undefined };
-      return {};
-    });
-    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
-    vi.stubGlobal("fetch", fetchMock);
 
     const { handler } = await import("../src/index");
-    const result = await handler(makeEvent({ document_id: "LOTM900101MDFPRR09", language: "es" }, "/auth/otp/request"));
+    const result = await handler(
+      makeEvent({ document_id: "LOTM900101MDFPRR09", first_name: "María Fernanda", last_name: "López Torres", language: "es" })
+    );
 
     expect(result.statusCode).toBe(200);
-    expect(JSON.parse(result.body as string)).toEqual({ ok: true });
-    expect(fetchMock).toHaveBeenCalledWith("https://api.resend.com/emails", expect.anything());
+    expect(JSON.parse(result.body as string)).toEqual({ ok: false, reason: "invalid_request" });
   });
+});
 
+describe("auth-agent handler -- paso 2 de login (/auth/otp/verify, único paso que mintea un token)", () => {
   it("POST /auth/otp/verify con código correcto -> 200, ok:true, token presente", async () => {
     ssmSend.mockResolvedValue({ Parameter: { Value: "el-secreto-real" } });
     const { hashOtpCode } = await import("../src/otp/code");
@@ -182,16 +187,5 @@ describe("auth-agent handler -- rutas OTP", () => {
 
     expect(result.statusCode).toBe(200);
     expect(JSON.parse(result.body as string)).toEqual({ ok: false, reason: "invalid_or_expired" });
-  });
-
-  it("POST /auth/otp/request sin RESEND_API_KEY_PARAM_NAME configurada -> 200, ok:false, nunca finge haber enviado un email", async () => {
-    delete process.env.RESEND_API_KEY_PARAM_NAME;
-    ssmSend.mockResolvedValue({ Parameter: { Value: "el-secreto-real" } });
-
-    const { handler } = await import("../src/index");
-    const result = await handler(makeEvent({ document_id: "LOTM900101MDFPRR09", language: "es" }, "/auth/otp/request"));
-
-    expect(result.statusCode).toBe(200);
-    expect(JSON.parse(result.body as string)).toEqual({ ok: false, reason: "invalid_request" });
   });
 });

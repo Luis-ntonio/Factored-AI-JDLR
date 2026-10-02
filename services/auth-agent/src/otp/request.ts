@@ -1,25 +1,33 @@
 import type { Customer } from "@banking-agent/transaction-agent/dist/data/mock-core-banking";
 import type { LanguageCode } from "@banking-agent/shared";
+import { findVerifiedCustomer } from "../login";
 import { generateOtpCode, hashOtpCode } from "./code";
 import { maskEmail } from "./mask-email";
 import { sendOtpEmail } from "./resend-client";
 import { REQUEST_COOLDOWN_MS, type DynamoDbOtpStore } from "./store";
 
 /**
- * Login alternativo DENTRO del chat: solo documento (sin nombre/apellido) ->
- * código de 6 dígitos enviado por email. Lógica pura salvo el envío de email
- * (inyectado como `sendEmail`, default `sendOtpEmail` real -- testeable sin
- * red).
+ * Paso 1 (de 2) de login -- ÚNICO camino de login desde la decisión de
+ * seguridad del usuario (ver docs/STATUS.md, "Login con código por email
+ * obligatorio"): documento + nombre + apellido (primer factor, `../login.ts`
+ * `findVerifiedCustomer`) -> si matchea, código de 6 dígitos enviado por
+ * email (segundo factor). El token real solo se mintea en el paso 2
+ * (`otp/verify.ts`), nunca acá -- antes de esta fase, un documento+nombre
+ * correcto ya minteaba el token directo (`attemptLogin`, retirado); ahora
+ * SIEMPRE hace falta además el código.
  *
- * **Respuesta SIEMPRE genérica** (`{ok:true}`), exista o no el documento --
- * mismo criterio anti-enumeración que `../login.ts`: revelar "documento no
- * encontrado" le permitiría a un atacante confirmar qué documentos son
- * clientes reales solo probando números. El mensaje al usuario es siempre
- * "si el documento existe, te llegó un código" -- nunca se distingue.
+ * **Respuesta SIEMPRE genérica** (`{ok:true}`), matchee o no el documento/
+ * nombre -- mismo criterio anti-enumeración que la función retirada:
+ * revelar cuál de los dos falló (o si el documento existe) le permitiría a
+ * un atacante enumerar documentos/nombres válidos. El mensaje al usuario es
+ * siempre "si tus datos son correctos, te llegó un código" -- nunca se
+ * distingue.
  */
 
 export interface OtpRequestRequest {
   document_id: string;
+  first_name: string;
+  last_name: string;
   language: LanguageCode;
 }
 
@@ -40,20 +48,31 @@ export async function attemptOtpRequest(
   request: Partial<OtpRequestRequest>,
   deps: OtpRequestDeps
 ): Promise<OtpRequestResult> {
-  const documentId = typeof request.document_id === "string" ? request.document_id.trim() : "";
   const language: LanguageCode = request.language === "pt" ? "pt" : "es";
 
-  if (!documentId) {
+  // Nunca llega a buscar en `customers` con campos vacíos -- este SÍ es un
+  // error distinguible del "no matchea" de abajo porque no depende de
+  // ningún dato de negocio (mismo criterio que la función retirada).
+  if (
+    typeof request.document_id !== "string" ||
+    !request.document_id.trim() ||
+    typeof request.first_name !== "string" ||
+    !request.first_name.trim() ||
+    typeof request.last_name !== "string" ||
+    !request.last_name.trim()
+  ) {
     return { ok: false, reason: "invalid_request" };
   }
 
-  const customer = deps.customers.find((c) => c.document_number === documentId);
+  const documentId = request.document_id.trim();
+  const customer = findVerifiedCustomer(request, deps.customers);
   const now = (deps.now ?? Date.now)();
 
-  // Documento inexistente: respuesta genérica idéntica, sin tocar el store
-  // ni enviar ningún email -- nada que hacer más allá de simular el mismo
-  // tiempo de respuesta que el camino feliz (no medido acá explícitamente,
-  // limitación conocida -- ver docs/EVALUATION-CRITERIA.md).
+  // Documento inexistente O nombre que no matchea: respuesta genérica
+  // idéntica, sin tocar el store ni enviar ningún email -- nada que hacer
+  // más allá de simular el mismo tiempo de respuesta que el camino feliz
+  // (no medido acá explícitamente, limitación conocida -- ver
+  // docs/EVALUATION-CRITERIA.md).
   if (!customer) {
     return { ok: true };
   }

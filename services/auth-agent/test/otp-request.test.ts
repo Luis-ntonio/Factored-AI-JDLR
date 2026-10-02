@@ -5,6 +5,8 @@ import { REQUEST_COOLDOWN_MS } from "../src/otp/store";
 import { FakeOtpStore } from "./fakes/fake-otp-store";
 
 const MARIA_DOCUMENT = "LOTM900101MDFPRR09";
+const MARIA_FIRST_NAME = "María Fernanda";
+const MARIA_LAST_NAME = "López Torres";
 
 function deps(overrides: Partial<Parameters<typeof attemptOtpRequest>[1]> = {}) {
   return {
@@ -17,10 +19,13 @@ function deps(overrides: Partial<Parameters<typeof attemptOtpRequest>[1]> = {}) 
   };
 }
 
-describe("attemptOtpRequest", () => {
-  it("documento existente -> {ok:true} y dispara el envío de email", async () => {
+describe("attemptOtpRequest -- paso 1 de 2 del login (documento + nombre + apellido)", () => {
+  it("documento + nombre + apellido correctos -> {ok:true} y dispara el envío de email", async () => {
     const sendEmail = vi.fn().mockResolvedValue({ ok: true });
-    const result = await attemptOtpRequest({ document_id: MARIA_DOCUMENT, language: "es" }, deps({ sendEmail }));
+    const result = await attemptOtpRequest(
+      { document_id: MARIA_DOCUMENT, first_name: MARIA_FIRST_NAME, last_name: MARIA_LAST_NAME, language: "es" },
+      deps({ sendEmail })
+    );
 
     expect(result).toEqual({ ok: true });
     expect(sendEmail).toHaveBeenCalledTimes(1);
@@ -31,15 +36,37 @@ describe("attemptOtpRequest", () => {
 
   it("documento inexistente -> MISMA respuesta {ok:true}, sin enviar ningún email (anti-enumeración)", async () => {
     const sendEmail = vi.fn().mockResolvedValue({ ok: true });
-    const result = await attemptOtpRequest({ document_id: "DOC-NO-EXISTE", language: "es" }, deps({ sendEmail }));
+    const result = await attemptOtpRequest(
+      { document_id: "DOC-NO-EXISTE", first_name: "Nadie", last_name: "Real", language: "es" },
+      deps({ sendEmail })
+    );
+
+    expect(result).toEqual({ ok: true });
+    expect(sendEmail).not.toHaveBeenCalled();
+  });
+
+  it("documento correcto pero nombre/apellido NO matchean -> MISMA respuesta {ok:true}, sin enviar email (anti-enumeración, segundo factor nunca se dispara sin el primero)", async () => {
+    const sendEmail = vi.fn().mockResolvedValue({ ok: true });
+    const result = await attemptOtpRequest(
+      { document_id: MARIA_DOCUMENT, first_name: "Otro", last_name: "Nombre", language: "es" },
+      deps({ sendEmail })
+    );
 
     expect(result).toEqual({ ok: true });
     expect(sendEmail).not.toHaveBeenCalled();
   });
 
   it("document_id faltante -> invalid_request", async () => {
-    const result = await attemptOtpRequest({ language: "es" }, deps());
+    const result = await attemptOtpRequest({ first_name: MARIA_FIRST_NAME, last_name: MARIA_LAST_NAME, language: "es" }, deps());
     expect(result).toEqual({ ok: false, reason: "invalid_request" });
+  });
+
+  it("first_name/last_name faltantes -> invalid_request (nunca llega a buscar en customers)", async () => {
+    const sendEmail = vi.fn().mockResolvedValue({ ok: true });
+    const result = await attemptOtpRequest({ document_id: MARIA_DOCUMENT, language: "es" }, deps({ sendEmail }));
+
+    expect(result).toEqual({ ok: false, reason: "invalid_request" });
+    expect(sendEmail).not.toHaveBeenCalled();
   });
 
   it("en cooldown (pedido hace <60s) -> {ok:true} pero NO reenvía el email", async () => {
@@ -56,7 +83,7 @@ describe("attemptOtpRequest", () => {
 
     const sendEmail = vi.fn().mockResolvedValue({ ok: true });
     const result = await attemptOtpRequest(
-      { document_id: MARIA_DOCUMENT, language: "es" },
+      { document_id: MARIA_DOCUMENT, first_name: MARIA_FIRST_NAME, last_name: MARIA_LAST_NAME, language: "es" },
       deps({ store: store as unknown as Parameters<typeof attemptOtpRequest>[1]["store"], sendEmail, now: () => now })
     );
 
@@ -78,7 +105,7 @@ describe("attemptOtpRequest", () => {
 
     const sendEmail = vi.fn().mockResolvedValue({ ok: true });
     const result = await attemptOtpRequest(
-      { document_id: MARIA_DOCUMENT, language: "es" },
+      { document_id: MARIA_DOCUMENT, first_name: MARIA_FIRST_NAME, last_name: MARIA_LAST_NAME, language: "es" },
       deps({ store: store as unknown as Parameters<typeof attemptOtpRequest>[1]["store"], sendEmail, now: () => now })
     );
 
@@ -88,7 +115,10 @@ describe("attemptOtpRequest", () => {
 
   it("falla el envío de email -> igual responde {ok:true} (nunca revela el fallo interno al usuario)", async () => {
     const sendEmail = vi.fn().mockResolvedValue({ ok: false });
-    const result = await attemptOtpRequest({ document_id: MARIA_DOCUMENT, language: "es" }, deps({ sendEmail }));
+    const result = await attemptOtpRequest(
+      { document_id: MARIA_DOCUMENT, first_name: MARIA_FIRST_NAME, last_name: MARIA_LAST_NAME, language: "es" },
+      deps({ sendEmail })
+    );
     expect(result).toEqual({ ok: true });
   });
 });

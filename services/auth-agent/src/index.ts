@@ -1,23 +1,30 @@
 import type { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from "aws-lambda";
 import { CUSTOMERS } from "@banking-agent/transaction-agent/dist/data/mock-core-banking";
 import { getAuthConfig, getOtpConfig } from "./config";
-import { attemptLogin, type LoginRequest } from "./login";
 import { attemptOtpRequest, type OtpRequestRequest } from "./otp/request";
 import { attemptOtpVerify, type OtpVerifyRequest } from "./otp/verify";
 import { buildOtpDocClientFromEnv, DynamoDbOtpStore } from "./otp/store";
 
 /**
- * Handler de Lambda para las 3 rutas de auth-agent, despachadas por
- * `rawPath` (las 3 comparten la MISMA integración de API Gateway -- ver
+ * Handler de Lambda para las rutas de auth-agent, despachadas por `rawPath`
+ * (comparten la MISMA integración de API Gateway -- ver
  * `terraform/modules/edge` -- así que un solo Lambda/handler las atiende
- * todas, nunca 3 Lambdas separados para algo tan chico):
- *   - `POST /auth/login`: documento + nombre + apellido -> sessionToken
- *     (existente, sin cambios de comportamiento).
- *   - `POST /auth/otp/request`: solo documento -> dispara un código de un
- *     solo uso por email (Resend). SIEMPRE responde `{ok:true}` exista o no
- *     el documento -- ver docstring de `otp/request.ts`.
- *   - `POST /auth/otp/verify`: documento + código -> sessionToken (mismo
- *     shape que `/auth/login`), consumiendo el código (un solo uso).
+ * todas, nunca uno separado para algo tan chico).
+ *
+ * Login SIEMPRE de 2 pasos desde la decisión de seguridad del usuario (ver
+ * docs/STATUS.md, "Login con código por email obligatorio" -- "un
+ * documento+nombre solo no prueba identidad lo suficiente si ese
+ * documento+nombre puede filtrarse o publicarse", literal el caso de este
+ * proyecto con los 2 clientes reales publicados en el README):
+ *   - `POST /auth/login` y `POST /auth/otp/request` (mismo handler, mismo
+ *     comportamiento -- 2 rutas por compatibilidad de naming con el
+ *     frontend/historial, nunca 2 lógicas distintas): documento + nombre +
+ *     apellido -> SI matchean contra el core bancario, dispara un código de
+ *     un solo uso por email (Resend). SIEMPRE responde `{ok:true}` exista o
+ *     no el documento/nombre -- ver docstring de `otp/request.ts`
+ *     (anti-enumeración).
+ *   - `POST /auth/otp/verify`: documento + código -> sessionToken,
+ *     consumiendo el código (un solo uso). Único paso que mintea un token.
  *
  * Nunca devuelve 401/403 -- SIEMPRE 200 con `{ok: true, ...}` o
  * `{ok: false, reason}` en el body (mismo criterio de Reliability que el
@@ -51,18 +58,6 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
   const path = event.rawPath ?? "";
 
   try {
-    if (path === "/auth/otp/request") {
-      const body = parseBody<OtpRequestRequest>(event);
-      const otpConfig = await getOtpConfig();
-      const result = await attemptOtpRequest(body, {
-        customers: CUSTOMERS,
-        store: getOtpStore(otpConfig.otpTableName),
-        resendApiKey: otpConfig.resendApiKey,
-        fromEmail: otpConfig.resendFromEmail,
-      });
-      return jsonResponse(result);
-    }
-
     if (path === "/auth/otp/verify") {
       const body = parseBody<OtpVerifyRequest>(event);
       const { sessionSecret } = await getAuthConfig();
@@ -75,10 +70,16 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
       return jsonResponse(result);
     }
 
-    // Default: /auth/login (comportamiento existente, sin cambios).
-    const body = parseBody<LoginRequest>(event);
-    const { sessionSecret } = await getAuthConfig();
-    const result = attemptLogin(body, CUSTOMERS, sessionSecret);
+    // Default: /auth/login y /auth/otp/request, MISMO comportamiento --
+    // ver docstring de arriba.
+    const body = parseBody<OtpRequestRequest>(event);
+    const otpConfig = await getOtpConfig();
+    const result = await attemptOtpRequest(body, {
+      customers: CUSTOMERS,
+      store: getOtpStore(otpConfig.otpTableName),
+      resendApiKey: otpConfig.resendApiKey,
+      fromEmail: otpConfig.resendFromEmail,
+    });
     return jsonResponse(result);
   } catch (error) {
     // eslint-disable-next-line no-console
